@@ -4,6 +4,10 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>CalamansiCare uses the camera to photograph leaves for disease detection.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>CalamansiCare lets you select leaf photos for disease detection.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

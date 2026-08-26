@@ -43,3 +43,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local Supabase credentials (use env/dev.example.json as the template)
+/env/dev.json
+/env/*.json
+!/env/*.example.json

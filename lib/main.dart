@@ -1,19 +1,92 @@
-import 'package:flutter/material.dart';
+import 'dart:typed_data';
 
-void main() => runApp(const CalamansiCareApp());
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+
+import 'data/diagnosis_repository.dart';
+import 'disease_classifier.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await DiagnosisRepository.instance.initialise();
+  runApp(const CalamansiCareApp());
+}
 
 const supportedLanguages = ['English', 'Tagalog', 'Cebuano'];
 
 const diseaseLabels = [
-  'Healthy',
-  'HLB / Greening',
-  'Citrus Canker',
   'Anthracnose',
-  'Sooty Mold',
+  'Brown Spot',
+  'Citrus Canker',
   'Citrus Scab',
-  'Brown Rot',
+  'HLB (Greening)',
+  'Healthy',
+  'Melanose',
   'Nutrient Deficiency',
 ];
+
+/// Confidence banding for the on-device classifier. Matches the standard
+/// range used for agricultural image classifiers: below 0.40 the model is
+/// unreliable and the result is rejected outright (never shown as if it
+/// were real), 0.40-0.60 is shown but flagged as low confidence, and 0.60+
+/// is accepted cleanly.
+enum ConfidenceTier { accepted, lowConfidence, rejected }
+
+ConfidenceTier confidenceTier(double confidence) {
+  if (confidence >= 0.60) return ConfidenceTier.accepted;
+  if (confidence >= 0.40) return ConfidenceTier.lowConfidence;
+  return ConfidenceTier.rejected;
+}
+
+const lowConfidenceWarningMessage =
+    'Low Confidence: Please retake the photo closer to the leaf under better lighting.';
+const lowConfidenceRejectionMessage =
+    'Disease could not be identified. Please ensure the leaf lesion is centered and clear.';
+
+class DiseaseGuidance {
+  const DiseaseGuidance({required this.kind, required this.recommendation});
+
+  final String kind;
+  final String recommendation;
+}
+
+DiseaseGuidance guidanceFor(String disease) {
+  switch (disease) {
+    case 'Healthy':
+      return const DiseaseGuidance(
+        kind: 'Healthy plant',
+        recommendation: 'Continue weekly checks, proper watering, sanitation, and balanced nutrition.',
+      );
+    case 'HLB (Greening)':
+      return const DiseaseGuidance(
+        kind: 'Bacterial disease',
+        recommendation: 'Isolate suspicious trees and ask an agriculture technician for field confirmation before removing trees.',
+      );
+    case 'Citrus Canker':
+      return const DiseaseGuidance(
+        kind: 'Bacterial disease',
+        recommendation: 'Prune badly affected parts with disinfected tools and avoid working on wet trees to limit spread.',
+      );
+    case 'Anthracnose':
+    case 'Melanose':
+    case 'Citrus Scab':
+    case 'Brown Spot':
+      return const DiseaseGuidance(
+        kind: 'Fungal disease',
+        recommendation: 'Remove infected plant material, improve airflow, and consult a technician before applying an approved treatment.',
+      );
+    case 'Nutrient Deficiency':
+      return const DiseaseGuidance(
+        kind: 'Nutritional condition',
+        recommendation: 'Check soil and fertiliser practice, then correct nutrients with guidance from an agriculture technician.',
+      );
+    default:
+      return const DiseaseGuidance(
+        kind: 'Needs field confirmation',
+        recommendation: 'Take another clear leaf photo and ask an agriculture technician to inspect the tree if symptoms spread.',
+      );
+  }
+}
 
 class CcColors {
   static const bg = Color(0xFFF8FAF2);
@@ -40,7 +113,8 @@ class AppText {
       tagalog: 'Protektahan ang\ninyong calamansi',
       cebuano: 'Panalipdi ang\ninyong calamansi',
     },
-    'Offline AI disease checking, treatment guidance, and barangay report preparation.': {
+    'Offline AI disease checking, treatment guidance, and barangay report preparation.':
+        {
       tagalog:
           'Offline AI na pagsusuri ng sakit, gabay sa paggamot, at paghahanda ng ulat sa barangay.',
       cebuano:
@@ -145,6 +219,26 @@ class AppText {
       cebuano: 'Tan-awa una bago ihanda ang report.',
     },
     'Likely disease': {tagalog: 'Posibleng sakit', cebuano: 'Posibleng sakit'},
+    'Low confidence': {
+      tagalog: 'Mababang confidence',
+      cebuano: 'Ubos nga confidence',
+    },
+    lowConfidenceWarningMessage: {
+      tagalog:
+          'Mababang Confidence: Paki-ulit ang litrato, mas malapit sa dahon at may sapat na liwanag.',
+      cebuano:
+          'Ubos nga Confidence: Kuhaa pag-usab ang litrato, mas duol sa dahon ug may igo nga suga.',
+    },
+    lowConfidenceRejectionMessage: {
+      tagalog:
+          'Hindi matukoy ang sakit. Siguraduhing nasa gitna at malinaw ang bahaging apektado ng dahon.',
+      cebuano:
+          'Dili matino ang sakit. Siguroha nga naa sa tunga ug klaro ang apektadong bahin sa dahon.',
+    },
+    'Scan a leaf from Home to see it here.': {
+      tagalog: 'Mag-scan ng dahon mula sa Home para makita ito dito.',
+      cebuano: 'Pag-scan og dahon gikan sa Home aron makita kini dinhi.',
+    },
     'Warning signs': {tagalog: 'Mga babala', cebuano: 'Mga timailhan'},
     'Blotchy yellow leaves': {
       tagalog: 'Hindi pantay na paninilaw ng dahon',
@@ -158,7 +252,8 @@ class AppText {
       tagalog: 'Posibleng paghina ng puno',
       cebuano: 'Posibleng paghuyang sa kahoy',
     },
-    'Ask a technician to confirm if symptoms spread. This app supports decisions, but does not replace field inspection.': {
+    'Ask a technician to confirm if symptoms spread. This app supports decisions, but does not replace field inspection.':
+        {
       tagalog:
           'Magpatingin sa technician kung kumalat ang sintomas. Gabay lamang ang app at hindi kapalit ng field inspection.',
       cebuano:
@@ -176,7 +271,8 @@ class AppText {
       tagalog: 'Unahin ang pagpigil sa pagkalat at kumpirmasyon ng eksperto.',
       cebuano: 'Unaha ang pagpugong sa paglapad ug kumpirmasyon sa eksperto.',
     },
-    'Priority: High. Isolate suspicious trees and request field confirmation.': {
+    'Priority: High. Isolate suspicious trees and request field confirmation.':
+        {
       tagalog:
           'Prayoridad: Mataas. Ihiwalay ang kahina-hinalang puno at humingi ng field confirmation.',
       cebuano:
@@ -186,13 +282,15 @@ class AppText {
     'Organic': {tagalog: 'Organiko', cebuano: 'Organiko'},
     'Chemical': {tagalog: 'Kemikal', cebuano: 'Kemikal'},
     'Prevention': {tagalog: 'Pag-iwas', cebuano: 'Paglikay'},
-    'Remove severely affected branches and avoid moving infected plant material.': {
+    'Remove severely affected branches and avoid moving infected plant material.':
+        {
       tagalog:
           'Tanggalin ang malubhang apektadong sanga at iwasang ilipat ang infected na bahagi ng halaman.',
       cebuano:
           'Tangtanga ang grabe nga apektadong sanga ug likayi ang pagbalhin sa infected nga bahin sa tanom.',
     },
-    'Keep trees healthy with proper watering, sanitation, and nutrient balance.': {
+    'Keep trees healthy with proper watering, sanitation, and nutrient balance.':
+        {
       tagalog:
           'Panatilihing malusog ang puno sa tamang dilig, kalinisan, at balanseng nutrisyon.',
       cebuano:
@@ -268,7 +366,8 @@ class AppText {
       cebuano: 'Lokal nga history sa SQLite',
     },
     'Target email': {tagalog: 'Target na email', cebuano: 'Target email'},
-    'Automatic sending will use Supabase when the phone reconnects to internet.': {
+    'Automatic sending will use Supabase when the phone reconnects to internet.':
+        {
       tagalog:
           'Gagamit ng Supabase ang automatic sending kapag bumalik ang internet.',
       cebuano:
@@ -413,6 +512,17 @@ class AppState extends ChangeNotifier {
   bool consentEnabled = true;
   bool reportQueued = true;
   String officeEmail = 'agri.office@barangay.gov.ph';
+  int queuedReportsCount = 0;
+  double? lastConfidence;
+
+  /// Pulls fresh counts from SQLite. Call this after any scan, queue, or
+  /// sync action so the Home screen's stat cards never go stale.
+  Future<void> refreshStats() async {
+    final stats = await DiagnosisRepository.instance.getHomeStats();
+    queuedReportsCount = stats.queuedReports;
+    lastConfidence = stats.lastConfidence;
+    notifyListeners();
+  }
 
   void setLanguage(String value) {
     language = value;
@@ -462,6 +572,12 @@ class CalamansiCareApp extends StatefulWidget {
 
 class _CalamansiCareAppState extends State<CalamansiCareApp> {
   final AppState state = AppState();
+
+  @override
+  void initState() {
+    super.initState();
+    state.refreshStats();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -565,7 +681,9 @@ class WelcomeScreen extends StatelessWidget {
                         const Spacer(),
                         Text(
                           context.t('Protect your\ncalamansi trees'),
-                          style: Theme.of(context).textTheme.headlineLarge
+                          style: Theme.of(context)
+                              .textTheme
+                              .headlineLarge
                               ?.copyWith(color: Colors.white, fontSize: 38),
                         ),
                         const SizedBox(height: 12),
@@ -573,10 +691,10 @@ class WelcomeScreen extends StatelessWidget {
                           context.t(
                             'Offline AI disease checking, treatment guidance, and barangay report preparation.',
                           ),
-                          style: Theme.of(context).textTheme.bodyLarge
-                              ?.copyWith(
-                                color: Colors.white.withValues(alpha: .78),
-                              ),
+                          style:
+                              Theme.of(context).textTheme.bodyLarge?.copyWith(
+                                    color: Colors.white.withValues(alpha: .78),
+                                  ),
                         ),
                       ],
                     ),
@@ -687,6 +805,7 @@ class HomeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final state = AppScope.of(context);
     return ScreenFrame(
       child: SingleChildScrollView(
         child: Column(
@@ -708,18 +827,25 @@ class HomeScreen extends StatelessWidget {
               buttonLabel: 'Capture',
               secondaryLabel: 'Upload',
               onPrimary: () => go(context, const CaptureScreen()),
-              onSecondary: () =>
-                  go(context, const CheckingScreen(fromGallery: true)),
+              onSecondary: () => selectLeafImage(context, ImageSource.gallery),
             ),
             const SizedBox(height: 16),
-            const Row(
+            Row(
               children: [
                 Expanded(
-                  child: StatCard(value: '3', label: 'Queued reports'),
+                  child: StatCard(
+                    value: '${state.queuedReportsCount}',
+                    label: 'Queued reports',
+                  ),
                 ),
-                SizedBox(width: 10),
+                const SizedBox(width: 10),
                 Expanded(
-                  child: StatCard(value: '91%', label: 'Last confidence'),
+                  child: StatCard(
+                    value: state.lastConfidence == null
+                        ? '—'
+                        : '${(state.lastConfidence! * 100).toStringAsFixed(0)}%',
+                    label: 'Last confidence',
+                  ),
                 ),
               ],
             ),
@@ -805,14 +931,13 @@ class CaptureScreen extends StatelessWidget {
                 foregroundColor: CcColors.dark,
                 shape: const CircleBorder(),
               ),
-              onPressed: () => go(context, const CheckingScreen()),
+              onPressed: () => selectLeafImage(context, ImageSource.camera),
               child: const Icon(Icons.camera_alt_rounded, size: 30),
             ),
           ),
           const SizedBox(height: 12),
           TextButton.icon(
-            onPressed: () =>
-                go(context, const CheckingScreen(fromGallery: true)),
+            onPressed: () => selectLeafImage(context, ImageSource.gallery),
             icon: const Icon(Icons.photo_library_outlined),
             label: Text(context.t('Choose from gallery')),
           ),
@@ -823,8 +948,10 @@ class CaptureScreen extends StatelessWidget {
 }
 
 class CheckingScreen extends StatefulWidget {
-  const CheckingScreen({super.key, this.fromGallery = false});
+  const CheckingScreen(
+      {super.key, required this.imageFile, required this.fromGallery});
 
+  final XFile imageFile;
   final bool fromGallery;
 
   @override
@@ -832,12 +959,47 @@ class CheckingScreen extends StatefulWidget {
 }
 
 class _CheckingScreenState extends State<CheckingScreen> {
+  String? _error;
+
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(seconds: 2), () {
-      if (mounted) replaceWith(context, const DiagnosisScreen());
-    });
+    _classifyImage();
+  }
+
+  Future<void> _classifyImage() async {
+    try {
+      final bytes = await widget.imageFile.readAsBytes();
+      final prediction =
+          await DiseaseClassifier.instance.classify(bytes, diseaseLabels);
+
+      if (confidenceTier(prediction.confidence) == ConfidenceTier.rejected) {
+        // Below the 50% floor: don't save this as a diagnosis and don't let
+        // a wild guess (e.g. a photo of anything but a leaf) reach the
+        // farmer looking like a real result.
+        if (mounted) setState(() => _error = lowConfidenceRejectionMessage);
+        return;
+      }
+
+      final diagnosisId = await DiagnosisRepository.instance.saveDiagnosis(
+        disease: prediction.label,
+        confidence: prediction.confidence,
+        imagePath: widget.imageFile.path,
+      );
+      if (mounted) {
+        await AppScope.of(context).refreshStats();
+      }
+      if (mounted) {
+        replaceWith(
+            context,
+            DiagnosisScreen(
+                prediction: prediction,
+                imageFile: widget.imageFile,
+                diagnosisId: diagnosisId));
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    }
   }
 
   @override
@@ -852,27 +1014,50 @@ class _CheckingScreenState extends State<CheckingScreen> {
           ),
           const SizedBox(height: 22),
           Expanded(
-            child: Center(
-              child: SectionCard(
-                title: widget.fromGallery
-                    ? 'Gallery image loaded'
-                    : 'Captured image ready',
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const PlantIllustration(size: 210),
-                    const SizedBox(height: 20),
-                    LinearProgressIndicator(
-                      minHeight: 10,
-                      borderRadius: BorderRadius.circular(99),
-                      color: CcColors.green,
-                      backgroundColor: CcColors.soft,
-                    ),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Finding disease pattern, confidence, and next action.',
-                    ),
-                  ],
+            child: SingleChildScrollView(
+              child: Center(
+                child: SectionCard(
+                  title: _error == null
+                      ? (widget.fromGallery
+                          ? 'Gallery image loaded'
+                          : 'Captured image ready')
+                      : 'Unable to check image',
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: LeafImage(
+                          imageFile: widget.imageFile,
+                          height: 210,
+                          width: double.infinity,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      if (_error == null) ...[
+                        LinearProgressIndicator(
+                          minHeight: 10,
+                          borderRadius: BorderRadius.circular(99),
+                          color: CcColors.green,
+                          backgroundColor: CcColors.soft,
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                            'Finding disease pattern, confidence, and next action.'),
+                      ] else ...[
+                        Text(
+                          context.t(_error!),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(fontSize: 13.5, height: 1.4, color: CcColors.ink),
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text('Choose another image'),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -884,10 +1069,21 @@ class _CheckingScreenState extends State<CheckingScreen> {
 }
 
 class DiagnosisScreen extends StatelessWidget {
-  const DiagnosisScreen({super.key});
+  const DiagnosisScreen(
+      {super.key,
+      required this.prediction,
+      required this.imageFile,
+      required this.diagnosisId});
+
+  final DiseasePrediction prediction;
+  final XFile imageFile;
+  final int diagnosisId;
 
   @override
   Widget build(BuildContext context) {
+    final guidance = guidanceFor(prediction.label);
+    final isLowConfidence =
+        confidenceTier(prediction.confidence) == ConfidenceTier.lowConfidence;
     return ScreenFrame(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -897,55 +1093,66 @@ class DiagnosisScreen extends StatelessWidget {
             subtitle: 'Review before preparing the report.',
           ),
           const SizedBox(height: 16),
-          SectionCard(
-            title: 'Likely disease',
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          Expanded(
+            child: ListView(
               children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const PlantIllustration(size: 96),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
+                SectionCard(
+                  title: 'Likely disease',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            'HLB / Greening',
-                            style: Theme.of(context).textTheme.headlineMedium,
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: LeafImage(imageFile: imageFile, width: 96, height: 96),
                           ),
-                          const SizedBox(height: 6),
-                          const SmallPill(
-                            '91% confidence',
-                            color: CcColors.orange,
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(context.t(prediction.label), style: Theme.of(context).textTheme.headlineMedium),
+                                const SizedBox(height: 6),
+                                // Per the confidence-threshold policy: only show
+                                // the numeric percentage once the result is
+                                // cleanly accepted (>=70%). The 50-70% band gets
+                                // a warning badge instead, with no number shown.
+                                if (isLowConfidence)
+                                  SmallPill(
+                                    context.t('Low confidence'),
+                                    color: CcColors.red,
+                                  )
+                                else
+                                  SmallPill(
+                                    '${(prediction.confidence * 100).toStringAsFixed(1)}% confidence',
+                                    color: CcColors.orange,
+                                  ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                const WarningBox(
-                  title: 'Warning signs',
-                  lines: [
-                    'Blotchy yellow leaves',
-                    'Uneven fruit color',
-                    'Possible tree decline',
-                  ],
-                ),
-                const SizedBox(height: 14),
-                const Text(
-                  'Ask a technician to confirm if symptoms spread. This app supports decisions, but does not replace field inspection.',
+                      if (isLowConfidence) ...[
+                        const SizedBox(height: 12),
+                        const LowConfidenceNotice(),
+                      ],
+                      const SizedBox(height: 16),
+                      TreatmentRecommendationCard(guidance: guidance),
+                      const SizedBox(height: 12),
+                      const Text('This is an AI screening result. Ask a technician to confirm if symptoms spread.'),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
-          const Spacer(),
+          const SizedBox(height: 12),
           PrimaryButton(
             label: 'View treatment guide',
             icon: Icons.medical_services_outlined,
-            onPressed: () => go(context, const TreatmentScreen()),
+            onPressed: () => go(context, TreatmentScreen(disease: prediction.label, diagnosisId: diagnosisId)),
           ),
         ],
       ),
@@ -953,11 +1160,80 @@ class DiagnosisScreen extends StatelessWidget {
   }
 }
 
-class TreatmentScreen extends StatelessWidget {
-  const TreatmentScreen({super.key});
+class LeafImage extends StatelessWidget {
+  const LeafImage({
+    super.key,
+    required this.imageFile,
+    required this.width,
+    required this.height,
+  });
+
+  final XFile imageFile;
+  final double width;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List>(
+      future: imageFile.readAsBytes(),
+      builder: (context, snapshot) {
+        if (snapshot.hasData) {
+          return Image.memory(
+            snapshot.data!,
+            width: width,
+            height: height,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => PlantIllustration(size: height),
+          );
+        }
+        return SizedBox(
+          width: width,
+          height: height,
+          child: const Center(child: CircularProgressIndicator()),
+        );
+      },
+    );
+  }
+}
+
+Future<void> selectLeafImage(BuildContext context, ImageSource source) async {
+  try {
+    final file = await ImagePicker().pickImage(
+      source: source,
+      imageQuality: 90,
+      maxWidth: 1600,
+    );
+    if (file != null && context.mounted) {
+      go(
+        context,
+        CheckingScreen(
+          imageFile: file,
+          fromGallery: source == ImageSource.gallery,
+        ),
+      );
+    }
+  } catch (error) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not open ${source == ImageSource.camera ? 'the camera' : 'the photo gallery'}: $error',
+          ),
+        ),
+      );
+    }
+  }
+}
+
+class TreatmentScreen extends StatelessWidget {
+  const TreatmentScreen({super.key, required this.disease, required this.diagnosisId});
+
+  final String disease;
+  final int diagnosisId;
+
+  @override
+  Widget build(BuildContext context) {
+    final guidance = guidanceFor(disease);
     return ScreenFrame(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -967,12 +1243,20 @@ class TreatmentScreen extends StatelessWidget {
             subtitle: 'Prioritize containment and expert confirmation.',
           ),
           const SizedBox(height: 16),
-          const PriorityCard(),
+          PriorityCard(message: guidance.recommendation),
           const SizedBox(height: 12),
-          const Expanded(
+          Expanded(
             child: SingleChildScrollView(
               child: Column(
                 children: [
+                  SectionCard(
+                    title: 'Disease type',
+                    child: Text(
+                      '${context.t(disease)} is classified as ${guidance.kind.toLowerCase()}.',
+                      style: const TextStyle(fontSize: 13.5, height: 1.4, color: CcColors.ink),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   GuideTile(
                     icon: Icons.yard_outlined,
                     title: 'Cultural',
@@ -1004,7 +1288,10 @@ class TreatmentScreen extends StatelessWidget {
           PrimaryButton(
             label: 'Prepare report',
             icon: Icons.description_outlined,
-            onPressed: () => go(context, const ReportPreviewScreen()),
+            onPressed: () => go(
+              context,
+              ReportPreviewScreen(disease: disease, diagnosisId: diagnosisId),
+            ),
           ),
         ],
       ),
@@ -1013,7 +1300,10 @@ class TreatmentScreen extends StatelessWidget {
 }
 
 class ReportPreviewScreen extends StatelessWidget {
-  const ReportPreviewScreen({super.key});
+  const ReportPreviewScreen({super.key, required this.disease, required this.diagnosisId});
+
+  final String disease;
+  final int diagnosisId;
 
   @override
   Widget build(BuildContext context) {
@@ -1032,8 +1322,7 @@ class ReportPreviewScreen extends StatelessWidget {
             child: Column(
               children: [
                 InfoRow(label: 'Email', value: state.officeEmail),
-                const InfoRow(label: 'Disease', value: 'HLB / Greening'),
-                const InfoRow(label: 'Confidence', value: '91%'),
+                InfoRow(label: 'Disease', value: disease),
                 const InfoRow(
                   label: 'Language',
                   value: 'English, Tagalog, Cebuano',
@@ -1065,7 +1354,16 @@ class ReportPreviewScreen extends StatelessWidget {
             icon: Icons.outbox_rounded,
             color: CcColors.orange,
             onPressed: state.consentEnabled
-                ? () => go(context, const OfflineQueueScreen())
+                ? () async {
+                    await DiagnosisRepository.instance.queueReport(
+                      diagnosisId: diagnosisId,
+                      officeEmail: state.officeEmail,
+                      consent: state.consentEnabled,
+                    );
+                    await DiagnosisRepository.instance.syncQueuedReports();
+                    await state.refreshStats();
+                    if (context.mounted) go(context, const OfflineQueueScreen());
+                  }
                 : null,
           ),
         ],
@@ -1140,44 +1438,85 @@ class OfflineQueueScreen extends StatelessWidget {
   }
 }
 
-class HistoryScreen extends StatelessWidget {
+class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
 
   @override
+  State<HistoryScreen> createState() => _HistoryScreenState();
+}
+
+class _HistoryScreenState extends State<HistoryScreen> {
+  late Future<List<Map<String, Object?>>> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = DiagnosisRepository.instance.getRecentDiagnoses();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return const ScreenFrame(
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TopLine(
-              title: 'History',
-              subtitle: 'Saved scans and report status from SQLite.',
+    return ScreenFrame(
+      child: FutureBuilder<List<Map<String, Object?>>>(
+        future: _future,
+        builder: (context, snapshot) {
+          final rows = snapshot.data;
+          return SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const TopLine(
+                  title: 'History',
+                  subtitle: 'Saved scans and report status from SQLite.',
+                ),
+                const SizedBox(height: 16),
+                if (snapshot.connectionState == ConnectionState.waiting)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (rows == null || rows.isEmpty)
+                  SectionCard(
+                    title: 'No scans yet',
+                    child: Text(context.t('Scan a leaf from Home to see it here.')),
+                  )
+                else
+                  for (final row in rows)
+                    HistoryTile(
+                      disease: row['disease'] as String,
+                      status: _reportStatusLabel(row['report_status'] as String?),
+                      date: _formatHistoryDate(row['created_at'] as String),
+                      confidence:
+                          '${(((row['confidence'] as num).toDouble()) * 100).toStringAsFixed(0)}%',
+                    ),
+              ],
             ),
-            SizedBox(height: 16),
-            HistoryTile(
-              disease: 'HLB / Greening',
-              status: 'Queued',
-              date: 'July 27, 2026',
-              confidence: '91%',
-            ),
-            HistoryTile(
-              disease: 'Healthy',
-              status: 'Not reported',
-              date: 'July 26, 2026',
-              confidence: '96%',
-            ),
-            HistoryTile(
-              disease: 'Citrus Canker',
-              status: 'Sent',
-              date: 'July 24, 2026',
-              confidence: '88%',
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
+}
+
+String _reportStatusLabel(String? status) {
+  switch (status) {
+    case 'synced':
+      return 'Sent';
+    case 'queued':
+      return 'Queued';
+    default:
+      return 'Not reported';
+  }
+}
+
+String _formatHistoryDate(String isoTimestamp) {
+  final date = DateTime.tryParse(isoTimestamp)?.toLocal();
+  if (date == null) return isoTimestamp;
+  const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+  return '${months[date.month - 1]} ${date.day}, ${date.year}';
 }
 
 class SettingsScreen extends StatelessWidget {
@@ -1751,7 +2090,9 @@ class SmallPill extends StatelessWidget {
 }
 
 class PriorityCard extends StatelessWidget {
-  const PriorityCard({super.key});
+  const PriorityCard({super.key, required this.message});
+
+  final String message;
 
   @override
   Widget build(BuildContext context) {
@@ -1763,14 +2104,18 @@ class PriorityCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: CcColors.orange.withValues(alpha: .35)),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          Icon(Icons.priority_high_rounded, color: CcColors.orange),
-          SizedBox(width: 10),
+          const Icon(Icons.priority_high_rounded, color: CcColors.orange),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Priority: High. Isolate suspicious trees and request field confirmation.',
-              style: TextStyle(fontWeight: FontWeight.w800),
+              message,
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 13.5,
+                height: 1.35,
+              ),
             ),
           ),
         ],
@@ -1800,9 +2145,14 @@ class GuideTile extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(icon, color: CcColors.green),
+            Icon(icon, color: CcColors.green, size: 20),
             const SizedBox(width: 12),
-            Expanded(child: Text(context.t(text))),
+            Expanded(
+              child: Text(
+                context.t(text),
+                style: const TextStyle(fontSize: 13.5, height: 1.4, color: CcColors.ink),
+              ),
+            ),
           ],
         ),
       ),
@@ -1810,11 +2160,10 @@ class GuideTile extends StatelessWidget {
   }
 }
 
-class WarningBox extends StatelessWidget {
-  const WarningBox({super.key, required this.title, required this.lines});
+class TreatmentRecommendationCard extends StatelessWidget {
+  const TreatmentRecommendationCard({super.key, required this.guidance});
 
-  final String title;
-  final List<String> lines;
+  final DiseaseGuidance guidance;
 
   @override
   Widget build(BuildContext context) {
@@ -1828,15 +2177,30 @@ class WarningBox extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            context.t(title),
-            style: const TextStyle(
+          const Text(
+            'Treatment recommendation',
+            style: TextStyle(
               fontWeight: FontWeight.w900,
               color: CcColors.red,
+              fontSize: 13,
+              height: 1.3,
             ),
           ),
           const SizedBox(height: 8),
-          for (final line in lines) Text('- ${context.t(line)}'),
+          Text(
+            guidance.kind,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 13.5,
+              height: 1.35,
+              color: CcColors.ink,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            guidance.recommendation,
+            style: const TextStyle(fontSize: 13.5, height: 1.4, color: CcColors.ink),
+          ),
         ],
       ),
     );
@@ -1865,6 +2229,39 @@ class NoticeCard extends StatelessWidget {
             child: Text(
               context.t(text),
               style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Shown on the diagnosis screen when confidence lands in the 50-70% band:
+/// the prediction is still displayed, but flagged so the farmer knows to
+/// double check it rather than treating it as certain.
+class LowConfidenceNotice extends StatelessWidget {
+  const LowConfidenceNotice({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: CcColors.orange.withValues(alpha: .14),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: CcColors.orange.withValues(alpha: .4)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: CcColors.orange),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              context.t(lowConfidenceWarningMessage),
+              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5, height: 1.35),
             ),
           ),
         ],
