@@ -3314,6 +3314,14 @@ class SettingTile extends StatelessWidget {
   final String action;
   final VoidCallback? onTap;
 
+  IconData get actionIcon {
+    return switch (action) {
+      'Change' => Icons.swap_horiz_rounded,
+      'Update' => Icons.system_update_alt_rounded,
+      _ => Icons.edit_rounded,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -3358,20 +3366,25 @@ class SettingTile extends StatelessWidget {
                   ],
                 ),
               ),
-              if (onTap != null)
-                Flexible(
-                  flex: 0,
-                  child: Text(
-                    context.t(action),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+              if (onTap != null) ...[
+                const SizedBox(width: 10),
+                Tooltip(
+                  message: context.t(action),
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: const BoxDecoration(
+                      color: CcColors.soft,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      actionIcon,
                       color: CcColors.green,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
+                      size: 18,
                     ),
                   ),
                 ),
+              ],
             ],
           ),
         ),
