@@ -125,16 +125,54 @@ class DiagnosisRepository {
         d.id,
         d.disease,
         d.confidence,
+        d.image_path,
         d.created_at,
         (
           SELECT r.status FROM queued_reports r
           WHERE r.diagnosis_id = d.id
           ORDER BY r.id DESC LIMIT 1
         ) AS report_status
+        ,
+        (
+          SELECT r.office_email FROM queued_reports r
+          WHERE r.diagnosis_id = d.id
+          ORDER BY r.id DESC LIMIT 1
+        ) AS report_email,
+        (
+          SELECT r.consent FROM queued_reports r
+          WHERE r.diagnosis_id = d.id
+          ORDER BY r.id DESC LIMIT 1
+        ) AS report_consent,
+        (
+          SELECT r.created_at FROM queued_reports r
+          WHERE r.diagnosis_id = d.id
+          ORDER BY r.id DESC LIMIT 1
+        ) AS report_created_at,
+        (
+          SELECT r.synced_at FROM queued_reports r
+          WHERE r.diagnosis_id = d.id
+          ORDER BY r.id DESC LIMIT 1
+        ) AS report_synced_at
       FROM diagnoses d
       ORDER BY d.created_at DESC
       LIMIT ?
     ''', [limit]);
+  }
+
+  Future<void> deleteDiagnosis(int diagnosisId) async {
+    final db = await _db;
+    await db.transaction((txn) async {
+      await txn.delete(
+        'queued_reports',
+        where: 'diagnosis_id = ?',
+        whereArgs: [diagnosisId],
+      );
+      await txn.delete(
+        'diagnoses',
+        where: 'id = ?',
+        whereArgs: [diagnosisId],
+      );
+    });
   }
 
   /// Small aggregate used by the Home screen: how many reports are still
