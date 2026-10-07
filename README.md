@@ -1,79 +1,62 @@
-# CalamansiCare Flutter UI
+# CalamansiCare UI
 
-This folder contains the first Flutter UI implementation for the CalamansiCare capstone app.
+CalamansiCare is an offline-first mobile application designed to detect calamansi plant diseases, provide treatment recommendations, and facilitate community-level agricultural reporting.
 
-## What Is Included
+---
 
-- `pubspec.yaml` with planned Flutter dependencies
-- `lib/main.dart` with the full static UI flow:
-  - Welcome and language selection
-  - Home dashboard
-  - Start check
-  - Camera/photo guide
-  - AI scanning
-  - Diagnosis result
-  - Treatment guide
-  - Report preview and consent
-  - Offline queue
-  - History
-  - Settings
-  - Barangay inbox
+## Overview
 
-## Important
+This repository contains the Flutter frontend implementation and initial UI prototypes for the CalamansiCare capstone system.
 
-This folder was created manually because the Flutter command was not visible in the terminal yet.
+### Key Features & Screen Flows
+* **Localization & Onboarding:** Welcome screen with multi-language selection.
+* **Triage & Scanning:** Step-by-step camera guidance, capture screen, and real-time AI scanning visualization.
+* **Diagnosis & Advisory:** Detailed disease detection results with actionable treatment guides.
+* **Offline-First Workflow:** Local diagnostic history, offline report queue, and automatic synchronization.
+* **Community Reporting:** Barangay inbox integration and privacy-focused report submission previews.
 
-Before running the app, open this folder in VS Code and make sure Flutter works:
+---
 
-```bash
-flutter --version
-flutter doctor
-```
+## Tech Stack & Architecture Decisions
 
-If Flutter works, run this inside the `CalamansiCare` folder:
+| Area | Selection | Rationale |
+| :--- | :--- | :--- |
+| **Framework** | Flutter | Cross-platform UI development (Android/iOS) |
+| **Language** | Dart | Type-safe, high-performance client runtime |
+| **Edge AI** | On-device Model | Offline inference without field connectivity |
+| **Local Database** | SQLite (`sqflite`) | Local caching for history and offline sync queues |
+| **Backend / Sync** | Supabase | Auth, cloud storage, and reporting database |
+| **Supported Locales**| English, Tagalog, Cebuano | Local accessibility for target farming communities |
 
-```bash
-flutter create .
-flutter pub get
-flutter run
-```
+---
 
-When Flutter asks whether to overwrite `lib/main.dart` or `pubspec.yaml`, choose **No** or keep the existing files, because these files already contain the CalamansiCare UI.
+## Supported Disease Classes
 
-## Current Tech Decisions
+All classification outputs, database schemas, and localization files must strictly adhere to the following target labels:
 
-| Area | Decision |
-|---|---|
-| Framework | Flutter |
-| Language | Dart |
-| Offline AI | On-device model |
-| Offline database | SQLite |
-| Reporting backend | Supabase |
-| Languages | English, Tagalog, Cebuano |
+* `Healthy`
+* `Citrus Canker`
+* `HLB / Greening`
+* `Anthracnose`
+* `Sooty Mold`
+* `Citrus Scab`
+* `Brown Rot`
+* `Nutrient Deficiency`
 
-## Disease Labels
+---
 
-Use these exact labels everywhere:
+## Getting Started
 
-1. Healthy
-2. Citrus Canker
-3. HLB / Greening
-4. Anthracnose
-5. Sooty Mold
-6. Citrus Scab
-7. Brown Rot
-8. Nutrient Deficiency
+### Prerequisites
+* Flutter SDK (Stable channel)
+* Dart SDK
+* Android Studio / VS Code with Flutter extension
+* Android SDK (API 21+) or iOS development environment
 
-## Next Development Steps
+### Installation & First Run
 
-1. Confirm Flutter is installed and added to PATH.
-2. Run `flutter create .` to generate Android/iOS/web project files.
-3. Run `flutter pub get`.
-4. Run the app on Chrome, emulator, or Android phone.
-5. Split `lib/main.dart` into folders later when the UI is stable.
-6. Connect real camera/gallery logic.
-7. Connect offline AI model.
-8. Connect SQLite for history and queue.
-9. Connect Supabase for report sending.
-
-"# CalamansiCare" 
+1. **Verify Environment:**
+   
+   ```bash
+   flutter --version
+   flutter doctor
