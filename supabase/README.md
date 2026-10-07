@@ -44,3 +44,31 @@ only calls `Supabase.initialize(...)` when both env values are non-empty, so
 the app still runs fully offline (SQLite-only) if you skip this step —
 queued reports will just sit in `queued_reports` until credentials are
 provided and `syncQueuedReports()` is called again.
+
+## 4. Report images
+
+Run `report_images_setup.sql` in the Supabase SQL Editor. This adds
+`image_url`, recreates `community_reports`, and creates the public
+`report-images` storage bucket used by the app.
+
+## 5. Report email delivery
+
+Run `report_email_setup.sql` in the Supabase SQL Editor. Then create these
+Edge Function secrets:
+
+- `BREVO_API_KEY`
+- `FROM_EMAIL`
+
+`BREVO_API_KEY` is preferred for this project because Brevo supports
+transactional email and can verify a sender email address. `FROM_EMAIL` must
+match the verified sender email in Brevo, for example
+`CalamansiCare Reports <yourverifiedemail@gmail.com>`.
+
+`SMTP2GO_API_KEY` is still supported, but SMTP2GO may require a work/domain
+email during signup.
+
+`RESEND_API_KEY` is still supported as a fallback, but Resend testing only
+sends to the account owner's email unless you verify a domain.
+
+Deploy the Edge Function in `functions/send-report-email`. Because this app
+does not use farmer login, deploy it with JWT verification disabled.

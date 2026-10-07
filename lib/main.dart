@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:io';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -56,12 +58,22 @@ const lowConfidenceWarningMessage =
     'Low Confidence: Please retake the photo closer to the leaf under better lighting.';
 const lowConfidenceRejectionMessage =
     'Disease could not be identified. Please ensure the leaf lesion is centered and clear.';
+const reportAcceptanceConfidenceThreshold = 0.80;
 
 class DiseaseGuidance {
-  const DiseaseGuidance({required this.kind, required this.recommendation});
+  const DiseaseGuidance({
+    required this.kind,
+    required this.recommendation,
+    required this.conventionalTreatment,
+    required this.organicTreatment,
+    required this.prevention,
+  });
 
   final String kind;
   final String recommendation;
+  final String conventionalTreatment;
+  final String organicTreatment;
+  final String prevention;
 }
 
 DiseaseGuidance guidanceFor(String disease) {
@@ -71,39 +83,108 @@ DiseaseGuidance guidanceFor(String disease) {
         kind: 'Healthy plant',
         recommendation:
             'Continue weekly checks, proper watering, sanitation, and balanced nutrition.',
+        conventionalTreatment:
+            'No insecticide, fungicide, or bactericide is needed. Do not spray a healthy tree unless a pest or disease is confirmed.',
+        organicTreatment:
+            'Keep the tree healthy with proper watering, compost or balanced citrus nutrition, pruning for airflow, and weekly inspection of leaves, fruit, and stems.',
+        prevention:
+            'Use clean planting materials, sanitize pruning tools, remove fallen diseased debris, and monitor nearby trees for early symptoms.',
       );
     case 'HLB (Greening)':
       return const DiseaseGuidance(
         kind: 'Bacterial disease',
         recommendation:
             'Isolate suspicious trees and ask an agriculture technician for field confirmation before removing trees.',
+        conventionalTreatment:
+            'There is no curative spray for HLB. If Asian citrus psyllids are present, use only labeled psyllid insecticides under technician guidance to reduce spread. Severely infected trees may need removal after confirmation.',
+        organicTreatment:
+            'Use clean disease-free seedlings, remove or isolate confirmed infected trees, control ants that protect sap-sucking pests, prune weak branches, improve irrigation, and keep the tree nutritionally balanced.',
+        prevention:
+            'Monitor new flush for psyllids, avoid moving infected seedlings or budwood, report suspected HLB, and protect young trees from psyllid access where possible.',
       );
     case 'Citrus Canker':
       return const DiseaseGuidance(
         kind: 'Bacterial disease',
         recommendation:
             'Prune badly affected parts with disinfected tools and avoid working on wet trees to limit spread.',
+        conventionalTreatment:
+            'Use a labeled copper-based bactericide/fungicide only as a protectant and only after field confirmation. It helps reduce new infection but will not heal existing spots.',
+        organicTreatment:
+            'Prune light infections, remove fallen infected leaves and fruit, disinfect tools between cuts, avoid overhead watering, and do not handle trees while leaves are wet.',
+        prevention:
+            'Reduce leaf wounds, manage citrus leafminer if present, plant windbreaks where practical, and avoid moving infected plant material.',
       );
     case 'Anthracnose':
+      return const DiseaseGuidance(
+        kind: 'Fungal disease',
+        recommendation:
+            'Remove infected plant material, improve airflow, and confirm the disease before applying any spray.',
+        conventionalTreatment:
+            'If anthracnose was severe or confirmed, use a labeled copper fungicide or other locally approved citrus fungicide as a protectant. Follow the label and avoid spraying during very hot weather.',
+        organicTreatment:
+            'Prune dead twigs and infected branches, remove fallen diseased material, improve sunlight and airflow, avoid overhead watering, and reduce plant stress.',
+        prevention:
+            'Keep the canopy open, sanitize pruning tools, maintain balanced nutrition, and inspect after long wet periods.',
+      );
     case 'Melanose':
+      return const DiseaseGuidance(
+        kind: 'Fungal disease',
+        recommendation:
+            'Remove dead twigs and dead wood because melanose commonly survives there.',
+        conventionalTreatment:
+            'Use a labeled copper fungicide protectively when disease pressure is high, especially during wet periods. Copper protects new growth and fruit but does not repair old damage.',
+        organicTreatment:
+            'Prune and remove dead wood, collect fallen infected debris, improve airflow, and keep the tree vigorous with proper water and nutrition.',
+        prevention:
+            'Regularly remove dead twigs, avoid dense canopy growth, and monitor fruit during rainy weather.',
+      );
     case 'Citrus Scab':
+      return const DiseaseGuidance(
+        kind: 'Fungal disease',
+        recommendation:
+            'Protect new leaves and young fruit early; old scab marks will not disappear.',
+        conventionalTreatment:
+            'Use labeled citrus fungicides such as copper-based protectants or other technician-approved fungicides at the correct early-growth timing.',
+        organicTreatment:
+            'Prune infected shoots, remove badly affected fruit, improve airflow, avoid overhead watering, and use organic-approved copper only if allowed and needed.',
+        prevention:
+            'Inspect spring flush and young fruit, reduce leaf wetness, sanitize pruning tools, and remove carryover infected material.',
+      );
     case 'Brown Spot':
       return const DiseaseGuidance(
         kind: 'Fungal disease',
         recommendation:
-            'Remove infected plant material, improve airflow, and consult a technician before applying an approved treatment.',
+            'Remove infected plant material, improve airflow, and consult a technician before applying any approved treatment.',
+        conventionalTreatment:
+            'Use labeled copper fungicide or other locally approved citrus fungicide preventively when brown spot is confirmed. Rotate products as advised to reduce resistance risk.',
+        organicTreatment:
+            'Remove infected leaves and twigs, prune dense canopy, improve drainage and airflow, avoid overhead watering, and avoid excessive nitrogen that causes tender flush.',
+        prevention:
+            'Monitor new flush and young fruit, reduce long leaf-wetness periods, and remove diseased debris from the farm.',
       );
     case 'Nutrient Deficiency':
       return const DiseaseGuidance(
         kind: 'Nutritional condition',
         recommendation:
             'Check soil and fertiliser practice, then correct nutrients with guidance from an agriculture technician.',
+        conventionalTreatment:
+            'Do not use insecticide or fungicide for nutrient deficiency. Use soil or leaf testing, correct soil pH if needed, and apply the proper citrus fertilizer or micronutrient product.',
+        organicTreatment:
+            'Improve soil health with compost, mulch kept away from the trunk, proper watering, drainage correction, and organic citrus fertilizer where available.',
+        prevention:
+            'Avoid overwatering, maintain drainage, fertilize on schedule, and inspect roots and soil pH when yellowing continues.',
       );
     default:
       return const DiseaseGuidance(
         kind: 'Needs field confirmation',
         recommendation:
             'Take another clear leaf photo and ask an agriculture technician to inspect the tree if symptoms spread.',
+        conventionalTreatment:
+            'Do not apply pesticide until the disease is confirmed. Wrong treatment can waste money and harm the tree.',
+        organicTreatment:
+            'Retake a clear photo, isolate suspicious plant material, remove fallen debris, and keep the tree watered and nourished while waiting for confirmation.',
+        prevention:
+            'Monitor nearby trees weekly and disinfect tools after pruning.',
       );
   }
 }
@@ -170,6 +251,65 @@ class AppText {
       tagalog: 'Simulan ang pagsusuri',
       cebuano: 'Sugdi ang pagsusi',
     },
+    'Terms of agreement': {
+      tagalog: 'Kasunduan sa paggamit',
+      cebuano: 'Kasabutan sa paggamit',
+    },
+    'Before using CalamansiCare, please acknowledge how the app handles report information.':
+        {
+      tagalog:
+          'Bago gamitin ang CalamansiCare, paki-acknowledge kung paano hinahawakan ng app ang impormasyon ng ulat.',
+      cebuano:
+          'Sa dili pa gamiton ang CalamansiCare, palihug dawata kung giunsa pagdumala sa app ang impormasyon sa report.',
+    },
+    'What we collect': {
+      tagalog: 'Impormasyong kinokolekta',
+      cebuano: 'Impormasyon nga kolektahon',
+    },
+    'Device signature, model, Android version, farmer name, farm location, barangay email, diagnosis result, confidence score, report date, and report image when you send a report.':
+        {
+      tagalog:
+          'Device signature, model, Android version, pangalan ng farmer, lokasyon ng farm, barangay email, resulta ng diagnosis, confidence score, petsa ng ulat, at larawan kapag nagpadala ng report.',
+      cebuano:
+          'Device signature, model, Android version, ngalan sa farmer, lokasyon sa uma, barangay email, resulta sa diagnosis, confidence score, petsa sa report, ug hulagway kung magpadala ka ug report.',
+    },
+    'How we use it': {
+      tagalog: 'Paano ito ginagamit',
+      cebuano: 'Giunsa kini paggamit',
+    },
+    'This information is used to save reports offline, avoid duplicate uploads, send reports to the barangay office, and show community disease alerts.':
+        {
+      tagalog:
+          'Ginagamit ito para mag-save ng reports offline, maiwasan ang duplicate uploads, magpadala ng reports sa barangay office, at magpakita ng community disease alerts.',
+      cebuano:
+          'Gigamit kini para masave ang reports offline, malikayan ang duplicate uploads, ipadala ang reports sa barangay office, ug ipakita ang community disease alerts.',
+    },
+    'Offline and online storage': {
+      tagalog: 'Offline at online na pag-save',
+      cebuano: 'Offline ug online nga pagtipig',
+    },
+    'Reports are saved locally on this phone first. When internet is available, approved reports are uploaded to Supabase and may be emailed to the target barangay email.':
+        {
+      tagalog:
+          'Ang reports ay unang sine-save sa phone. Kapag may internet, ang approved reports ay ia-upload sa Supabase at maaaring i-email sa target barangay email.',
+      cebuano:
+          'Ang reports una nga isave sa phone. Kung naay internet, ang approved reports i-upload sa Supabase ug mahimong i-email sa target barangay email.',
+    },
+    'Farmer responsibility': {
+      tagalog: 'Responsibilidad ng farmer',
+      cebuano: 'Responsibilidad sa farmer',
+    },
+    'The app gives guidance only. Confirm serious disease findings with the local agriculture office before applying treatment.':
+        {
+      tagalog:
+          'Gabay lamang ang app. I-confirm muna sa local agriculture office ang seryosong sakit bago gumamit ng treatment.',
+      cebuano:
+          'Giya lamang ang app. I-confirm una sa local agriculture office ang seryosong sakit sa dili pa mogamit ug treatment.',
+    },
+    'I understand and agree': {
+      tagalog: 'Nauunawaan ko at sumasang-ayon ako',
+      cebuano: 'Nakasabot ko ug mouyon ko',
+    },
     'Home': {tagalog: 'Home', cebuano: 'Home'},
     'Check': {tagalog: 'Suriin', cebuano: 'Susi'},
     'History': {tagalog: 'Kasaysayan', cebuano: 'Kasaysayan'},
@@ -182,6 +322,51 @@ class AppText {
       cebuano: 'Andam na ba sa pagsusi sa inyong dahon sa calamansi?',
     },
     'Offline ready': {tagalog: 'Handa offline', cebuano: 'Andam offline'},
+    'Online ready': {tagalog: 'Handa online', cebuano: 'Andam online'},
+    'Waiting for internet connection': {
+      tagalog: 'Naghihintay ng internet connection',
+      cebuano: 'Naghulat sa internet connection',
+    },
+    'Saved locally, will retry': {
+      tagalog: 'Naka-save lokal, susubukan muli',
+      cebuano: 'Na-save lokal, sulayan usab',
+    },
+    'Location not set': {
+      tagalog: 'Wala pang lokasyon',
+      cebuano: 'Wala pay lokasyon',
+    },
+    'Tap to add': {
+      tagalog: 'Pindutin para magdagdag',
+      cebuano: 'Pislita aron makadugang',
+    },
+    'Complete farmer information first': {
+      tagalog: 'Kumpletuhin muna ang impormasyon ng farmer',
+      cebuano: 'Kompletoha una ang impormasyon sa farmer',
+    },
+    'Please add farmer name, farm location, and barangay email before sending a report.':
+        {
+      tagalog:
+          'Ilagay muna ang pangalan ng farmer, lokasyon ng farm, at barangay email bago magpadala ng ulat.',
+      cebuano:
+          'Ibutang una ang ngalan sa farmer, lokasyon sa farm, ug barangay email bago magpadala ug report.',
+    },
+    'Edit settings': {
+      tagalog: 'Ayusin ang settings',
+      cebuano: 'Usba ang settings',
+    },
+    'Ready to send when online': {
+      tagalog: 'Handa nang ipadala kapag online',
+      cebuano: 'Andam ipadala kung online',
+    },
+    'No reports waiting to send': {
+      tagalog: 'Walang ulat na naghihintay ipadala',
+      cebuano: 'Walay report nga naghuwat ipadala',
+    },
+    'Sending report...': {
+      tagalog: 'Ipinapadala ang ulat...',
+      cebuano: 'Gipadala ang report...',
+    },
+    'Back': {tagalog: 'Bumalik', cebuano: 'Balik'},
     'Online': {tagalog: 'Online', cebuano: 'Online'},
     'New disease check': {
       tagalog: 'Bagong pagsusuri',
@@ -240,6 +425,18 @@ class AppText {
       tagalog: 'Sinusuri ng offline model ang mga palatandaan sa dahon.',
       cebuano: 'Gisusi sa offline model ang mga timailhan sa dahon.',
     },
+    'Offline model is analyzing image features.': {
+      tagalog: 'Sinusuri ng offline model ang mga palatandaan sa larawan.',
+      cebuano: 'Gisusi sa offline model ang mga timailhan sa hulagway.',
+    },
+    'Checking image color, spots, texture, and shape.': {
+      tagalog: 'Sinusuri ang kulay, batik, texture, at hugis sa larawan.',
+      cebuano: 'Gisusi ang kolor, mga lama, texture, ug porma sa hulagway.',
+    },
+    'Analyzed photo': {
+      tagalog: 'Nasuring larawan',
+      cebuano: 'Nasusi nga hulagway',
+    },
     'Gallery image loaded': {
       tagalog: 'Larawan mula sa gallery',
       cebuano: 'Hulagway gikan sa gallery',
@@ -266,6 +463,17 @@ class AppText {
     'Low confidence': {
       tagalog: 'Mababang confidence',
       cebuano: 'Ubos nga confidence',
+    },
+    'Please kindly take/provide another photo': {
+      tagalog: 'Pakiusap kumuha o magbigay ng panibagong larawan',
+      cebuano: 'Palihug kuha o hatag ug laing hulagway',
+    },
+    'To improve accuracy, make sure the photo shows only a calamansi fruit or leaf against a plain background. Avoid other objects, patterned surfaces, shadows, or clutter that can confuse the AI.':
+        {
+      tagalog:
+          'Para mas tama ang resulta, siguraduhing calamansi na bunga o dahon lamang ang nasa larawan at plain ang background. Iwasan ang ibang bagay, patterned na ibabaw, anino, o kalat na maaaring makalito sa AI.',
+      cebuano:
+          'Para mas sakto ang resulta, siguroha nga calamansi nga bunga o dahon lang ang naa sa hulagway ug plain ang background. Likayi ang ubang butang, patterned nga ibabaw, landong, o samok nga makalibog sa AI.',
     },
     lowConfidenceWarningMessage: {
       tagalog:
@@ -330,6 +538,19 @@ class AppText {
     'Organic': {tagalog: 'Organiko', cebuano: 'Organiko'},
     'Chemical': {tagalog: 'Kemikal', cebuano: 'Kemikal'},
     'Prevention': {tagalog: 'Pag-iwas', cebuano: 'Paglikay'},
+    'Disease type': {tagalog: 'Uri ng sakit', cebuano: 'Klase sa sakit'},
+    'Treatment options': {
+      tagalog: 'Mga opsyon sa paggamot',
+      cebuano: 'Mga opsyon sa pagtambal',
+    },
+    'Conventional treatment': {
+      tagalog: 'Conventional na paggamot',
+      cebuano: 'Conventional nga pagtambal',
+    },
+    'Organic / natural management': {
+      tagalog: 'Organiko / natural na paraan',
+      cebuano: 'Organiko / natural nga pamaagi',
+    },
     'Remove severely affected branches and avoid moving infected plant material.':
         {
       tagalog:
@@ -360,6 +581,20 @@ class AppText {
       tagalog: 'Ihanda ang ulat',
       cebuano: 'Ihanda ang report',
     },
+    'Report this scan': {
+      tagalog: 'I-report ang scan na ito',
+      cebuano: 'I-report kini nga scan',
+    },
+    'Already reported': {
+      tagalog: 'Nai-report na',
+      cebuano: 'Na-report na',
+    },
+    'Only scans with 80% confidence or higher can be reported.': {
+      tagalog:
+          'Tanging scan na may 80% confidence pataas ang maaaring i-report.',
+      cebuano:
+          'Ang scan nga adunay 80% confidence pataas ra ang mahimong i-report.',
+    },
     'Report preview': {
       tagalog: 'Preview ng ulat',
       cebuano: 'Preview sa report',
@@ -381,9 +616,17 @@ class AppText {
       tagalog: 'Kailangan bago ma-email ang ulat gamit ang Supabase.',
       cebuano: 'Kinahanglan bago ma-email ang report gamit ang Supabase.',
     },
-    'Queue report offline': {
-      tagalog: 'Ipila ang ulat offline',
-      cebuano: 'Ipila ang report offline',
+    'Report': {
+      tagalog: 'I-report',
+      cebuano: 'I-report',
+    },
+    'Report is pending and waiting for internet connection.': {
+      tagalog: 'Pending ang ulat at naghihintay ng internet connection.',
+      cebuano: 'Pending ang report ug naghuwat sa internet connection.',
+    },
+    'Report saved. Sending to barangay now.': {
+      tagalog: 'Naka-save ang ulat. Ipinapadala na sa barangay.',
+      cebuano: 'Na-save ang report. Gipadala na sa barangay.',
     },
     'Offline queue': {tagalog: 'Offline na pila', cebuano: 'Offline nga pila'},
     'Reports wait here until internet is available.': {
@@ -433,6 +676,13 @@ class AppText {
       tagalog: 'Namarkahan na naipadala ang ulat para sa UI demo.',
       cebuano: 'Namarkahan nga napadala ang report para sa UI demo.',
     },
+    'Sync attempted. Reports stay saved locally until Supabase confirms upload.':
+        {
+      tagalog:
+          'Sinubukan ang sync. Mananatiling lokal ang ulat hanggang makumpirma ng Supabase ang upload.',
+      cebuano:
+          'Gisulayan ang sync. Magpabilin lokal ang report hangtod makumpirma sa Supabase ang upload.',
+    },
     'Back to home': {tagalog: 'Bumalik sa home', cebuano: 'Balik sa home'},
     'Saved scans and report status from SQLite.': {
       tagalog: 'Mga na-save na scan at status ng ulat mula sa SQLite.',
@@ -461,8 +711,7 @@ class AppText {
       cebuano: 'Sigurado ka nga papason kini nga history?',
     },
     'This will permanently remove this scan from local history.': {
-      tagalog:
-          'Permanenteng aalisin nito ang scan na ito sa lokal na history.',
+      tagalog: 'Permanenteng aalisin nito ang scan na ito sa lokal na history.',
       cebuano:
           'Permanenteng tangtangon niini ang scan gikan sa lokal nga history.',
     },
@@ -504,6 +753,10 @@ class AppText {
     },
     'Name': {tagalog: 'Pangalan', cebuano: 'Ngalan'},
     'Location': {tagalog: 'Lokasyon', cebuano: 'Lokasyon'},
+    'Device signature': {
+      tagalog: 'Pirma ng device',
+      cebuano: 'Pirma sa device',
+    },
     'Font size': {tagalog: 'Laki ng font', cebuano: 'Gidak-on sa font'},
     'Change': {tagalog: 'Palitan', cebuano: 'Ilisi'},
     'Barangay email': {
@@ -536,10 +789,6 @@ class AppText {
     'Agriculture office monitoring view.': {
       tagalog: 'Monitoring view ng agriculture office.',
       cebuano: 'Monitoring view sa agriculture office.',
-    },
-    'Disease alerts map': {
-      tagalog: 'Mapa ng disease alerts',
-      cebuano: 'Mapa sa disease alerts',
     },
     'Open selected report': {
       tagalog: 'Buksan ang napiling ulat',
@@ -597,6 +846,10 @@ class AppText {
       tagalog: 'Suriin ang napiling ulat',
       cebuano: 'Susihon ang napiling report',
     },
+    'Community report opened for review.': {
+      tagalog: 'Binuksan ang community report para suriin.',
+      cebuano: 'Giablihan ang community report para susihon.',
+    },
     'High priority': {
       tagalog: 'Mataas na prayoridad',
       cebuano: 'Taas nga prayoridad',
@@ -625,24 +878,115 @@ String timeGreetingKey([DateTime? now]) {
 }
 
 class AppState extends ChangeNotifier {
+  AppState({this.persistSettings = true}) {
+    termsAccepted = !persistSettings;
+  }
+
+  final bool persistSettings;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+
   String language = 'English';
   int tabIndex = 0;
   bool consentEnabled = true;
-  bool reportQueued = true;
+  bool termsAccepted = false;
+  bool isOnline = false;
   bool isDetectingLocation = false;
   double fontScale = 1;
-  String farmerName = 'Juana Dela Cruz';
-  String farmerLocation = 'Calinan, Davao City';
-  String locationNote = 'Manual location';
-  String officeEmail = 'agri.office@barangay.gov.ph';
+  String farmerName = '';
+  String farmerLocation = '';
+  String locationNote = 'Location not set';
+  String officeEmail = '';
+  String deviceId = 'device-local';
+  String deviceSignature = 'CC-Device-LOCAL';
+  String deviceModel = 'Device';
+  String deviceBrand = 'Unknown';
+  String androidVersion = 'Unknown';
+  int checksCount = 0;
   int queuedReportsCount = 0;
+  int sentReportsCount = 0;
   double? lastConfidence;
+
+  String get readinessLabel => isOnline ? 'Online ready' : 'Offline ready';
+  bool get hasCompleteReportProfile =>
+      farmerName.trim().isNotEmpty &&
+      farmerLocation.trim().isNotEmpty &&
+      officeEmail.trim().isNotEmpty;
+
+  Future<void> loadSavedSettings() async {
+    if (!persistSettings) return;
+    final settings = await DiagnosisRepository.instance.loadSettings();
+    language = settings.language;
+    consentEnabled = settings.consentEnabled;
+    termsAccepted = settings.termsAccepted;
+    fontScale = settings.fontScale.clamp(.9, 1.3);
+    farmerName = settings.farmerName;
+    farmerLocation = settings.farmerLocation;
+    locationNote = settings.locationNote;
+    officeEmail = settings.officeEmail;
+    deviceId = settings.deviceId;
+    deviceSignature = settings.deviceSignature;
+    deviceModel = settings.deviceModel;
+    deviceBrand = settings.deviceBrand;
+    androidVersion = settings.androidVersion;
+    notifyListeners();
+    DiagnosisRepository.instance.syncSettings();
+  }
+
+  Future<void> _persistSettings() async {
+    if (!persistSettings) return;
+    await DiagnosisRepository.instance.saveSettings(
+      currentSettings(),
+    );
+  }
+
+  AppSettings currentSettings() {
+    return AppSettings(
+      language: language,
+      consentEnabled: consentEnabled,
+      termsAccepted: termsAccepted,
+      fontScale: fontScale,
+      farmerName: farmerName,
+      farmerLocation: farmerLocation,
+      locationNote: locationNote,
+      officeEmail: officeEmail,
+      deviceId: deviceId,
+      deviceSignature: deviceSignature,
+      deviceModel: deviceModel,
+      deviceBrand: deviceBrand,
+      androidVersion: androidVersion,
+    );
+  }
+
+  Future<void> startConnectivityMonitor() async {
+    await checkConnectivityAndSync();
+    _connectivitySubscription?.cancel();
+    _connectivitySubscription =
+        Connectivity().onConnectivityChanged.listen((_) {
+      checkConnectivityAndSync();
+    });
+  }
+
+  Future<void> checkConnectivityAndSync() async {
+    final result = await Connectivity().checkConnectivity();
+    final hasNetwork = result.any((item) => item != ConnectivityResult.none);
+    final wasOnline = isOnline;
+    isOnline = hasNetwork;
+    notifyListeners();
+    if (isOnline) {
+      await DiagnosisRepository.instance.syncSettings();
+      await DiagnosisRepository.instance.syncQueuedReports();
+      await refreshStats();
+      if (!wasOnline) notifyListeners();
+    }
+  }
 
   /// Pulls fresh counts from SQLite. Call this after any scan, queue, or
   /// sync action so the Home screen's stat cards never go stale.
   Future<void> refreshStats() async {
     final stats = await DiagnosisRepository.instance.getHomeStats();
+    checksCount = stats.checks;
     queuedReportsCount = stats.queuedReports;
+    sentReportsCount = stats.sentReports;
     lastConfidence = stats.lastConfidence;
     notifyListeners();
   }
@@ -650,6 +994,7 @@ class AppState extends ChangeNotifier {
   void setLanguage(String value) {
     language = value;
     notifyListeners();
+    _persistSettings();
   }
 
   void setTab(int value) {
@@ -660,27 +1005,38 @@ class AppState extends ChangeNotifier {
   void setConsent(bool value) {
     consentEnabled = value;
     notifyListeners();
+    _persistSettings();
+  }
+
+  Future<void> acceptTermsAgreement() async {
+    termsAccepted = true;
+    notifyListeners();
+    await _persistSettings();
   }
 
   void setEmail(String value) {
     officeEmail = value;
     notifyListeners();
+    _persistSettings();
   }
 
   void setFarmerName(String value) {
     farmerName = value;
     notifyListeners();
+    _persistSettings();
   }
 
   void setFarmerLocation(String value, {String note = 'Manual location'}) {
     farmerLocation = value;
     locationNote = note;
     notifyListeners();
+    _persistSettings();
   }
 
   void setFontScale(double value) {
     fontScale = value.clamp(.9, 1.3);
     notifyListeners();
+    _persistSettings();
   }
 
   Future<String?> usePhoneLocation() async {
@@ -702,6 +1058,7 @@ class AppState extends ChangeNotifier {
       locationNote = address?.isNotEmpty == true
           ? 'Auto-filled from phone location'
           : 'Auto-filled from phone coordinates';
+      await _persistSettings();
       return null;
     } on PlatformException catch (error) {
       locationNote = switch (error.code) {
@@ -720,9 +1077,10 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void markSent() {
-    reportQueued = false;
-    notifyListeners();
+  @override
+  void dispose() {
+    _connectivitySubscription?.cancel();
+    super.dispose();
   }
 }
 
@@ -740,19 +1098,37 @@ class AppScope extends InheritedWidget {
 }
 
 class CalamansiCareApp extends StatefulWidget {
-  const CalamansiCareApp({super.key});
+  const CalamansiCareApp({
+    super.key,
+    this.enableInitialStatsRefresh = true,
+    this.enableSettingsPersistence = true,
+    this.enableConnectivityMonitor = true,
+  });
+
+  final bool enableInitialStatsRefresh;
+  final bool enableSettingsPersistence;
+  final bool enableConnectivityMonitor;
 
   @override
   State<CalamansiCareApp> createState() => _CalamansiCareAppState();
 }
 
 class _CalamansiCareAppState extends State<CalamansiCareApp> {
-  final AppState state = AppState();
+  late final AppState state =
+      AppState(persistSettings: widget.enableSettingsPersistence);
 
   @override
   void initState() {
     super.initState();
-    state.refreshStats();
+    if (widget.enableSettingsPersistence) {
+      state.loadSavedSettings();
+    }
+    if (widget.enableConnectivityMonitor) {
+      state.startConnectivityMonitor();
+    }
+    if (widget.enableInitialStatsRefresh) {
+      state.refreshStats();
+    }
   }
 
   @override
@@ -951,8 +1327,13 @@ class WelcomeScreen extends StatelessWidget {
                       PrimaryButton(
                         label: 'Start plant check',
                         icon: Icons.eco,
-                        onPressed: () =>
-                            replaceWith(context, const MainShell()),
+                        onPressed: () async {
+                          final accepted =
+                              await ensureTermsAgreementAccepted(context);
+                          if (accepted && context.mounted) {
+                            replaceWith(context, const MainShell());
+                          }
+                        },
                       ),
                     ],
                   ),
@@ -1024,7 +1405,7 @@ class HomeScreen extends StatelessWidget {
             TopLine(
               title: timeGreetingKey(),
               subtitle: 'Ready to check leaves and fruits in the field.',
-              pill: 'Offline ready',
+              pill: state.readinessLabel,
             ),
             const SizedBox(height: 16),
             DarkActionCard(
@@ -1040,7 +1421,12 @@ class HomeScreen extends StatelessWidget {
               title: 'Field summary',
               child: Row(
                 children: [
-                  const Expanded(child: StatCard(value: '3', label: 'Checks')),
+                  Expanded(
+                    child: StatCard(
+                      value: '${state.checksCount}',
+                      label: 'Checks',
+                    ),
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: StatCard(
@@ -1050,8 +1436,11 @@ class HomeScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  const Expanded(
-                    child: StatCard(value: '0', label: 'Sent'),
+                  Expanded(
+                    child: StatCard(
+                      value: '${state.sentReportsCount}',
+                      label: 'Sent',
+                    ),
                   ),
                 ],
               ),
@@ -1229,7 +1618,7 @@ class _CheckingScreenState extends State<CheckingScreen> {
         children: [
           const TopLine(
             title: 'Checking image',
-            subtitle: 'Offline model is analyzing leaf features.',
+            subtitle: 'Offline model is analyzing image features.',
           ),
           const SizedBox(height: 22),
           Expanded(
@@ -1267,29 +1656,6 @@ class _CheckingScreenState extends State<CheckingScreen> {
                             backgroundColor: CcColors.softStrong,
                           ),
                         ),
-                        Positioned(
-                          left: 8,
-                          right: 8,
-                          bottom: 0,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: CcColors.green.withValues(alpha: .35),
-                              borderRadius: BorderRadius.circular(99),
-                            ),
-                            child: const Text(
-                              'Calamansi leaf photo',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -1309,8 +1675,10 @@ class _CheckingScreenState extends State<CheckingScreen> {
                             backgroundColor: CcColors.softStrong,
                           ),
                           const SizedBox(height: 16),
-                          const Text(
-                            'Checking leaf color, spots, texture, and shape.',
+                          Text(
+                            context.t(
+                              'Checking image color, spots, texture, and shape.',
+                            ),
                           ),
                           const SizedBox(height: 10),
                           const SmallPill('Offline model active'),
@@ -1325,8 +1693,9 @@ class _CheckingScreenState extends State<CheckingScreen> {
                           ),
                           const SizedBox(height: 12),
                           OutlinedButton(
-                            onPressed: () => Navigator.of(context).pop(),
-                            child: const Text('Choose another image'),
+                            onPressed: () =>
+                                replaceWith(context, const CaptureScreen()),
+                            child: Text(context.t('Scan Again')),
                           ),
                         ],
                       ],
@@ -1361,8 +1730,8 @@ class DiagnosisScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isLowConfidence =
-        confidenceTier(prediction.confidence) == ConfidenceTier.lowConfidence;
+    final shouldRetakePhoto =
+        prediction.confidence < reportAcceptanceConfidenceThreshold;
     final guidance = guidanceFor(prediction.label);
     return ScreenFrame(
       child: Column(
@@ -1396,86 +1765,77 @@ class DiagnosisScreen extends StatelessWidget {
                           ),
                         ),
                       ),
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: CcColors.green.withValues(alpha: .35),
-                            borderRadius: BorderRadius.circular(99),
-                          ),
-                          child: const Text(
-                            'Analyzed leaf',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
+                      if (!shouldRetakePhoto)
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: CcColors.green.withValues(alpha: .35),
+                              borderRadius: BorderRadius.circular(99),
+                            ),
+                            child: Text(
+                              context.t('Analyzed photo'),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                           ),
                         ),
-                      ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 18),
-                SectionCard(
-                  title: 'Likely disease',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (isLowConfidence)
-                        SmallPill(
-                          context.t('Low confidence'),
-                          color: CcColors.orange,
-                        )
-                      else
+                if (shouldRetakePhoto)
+                  const RetakePhotoNoticeCard()
+                else ...[
+                  SectionCard(
+                    title: 'Likely disease',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         const SmallPill(
                           'Likely disease',
                           color: CcColors.orange,
                         ),
-                      const SizedBox(height: 12),
-                      Text(
-                        context.t(prediction.label),
-                        style: Theme.of(context).textTheme.headlineMedium,
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        isLowConfidence
-                            ? context.t('Low confidence')
-                            : 'Confidence ${(prediction.confidence * 100).toStringAsFixed(0)}%',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w900,
-                          color: CcColors.green,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(99),
-                        child: LinearProgressIndicator(
-                          value: prediction.confidence.clamp(0, 1),
-                          minHeight: 8,
-                          color: CcColors.green,
-                          backgroundColor: CcColors.softStrong,
-                        ),
-                      ),
-                      if (isLowConfidence) ...[
                         const SizedBox(height: 12),
-                        const LowConfidenceNotice(),
+                        Text(
+                          context.t(prediction.label),
+                          style: Theme.of(context).textTheme.headlineMedium,
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Confidence ${(prediction.confidence * 100).toStringAsFixed(0)}%',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w900,
+                            color: CcColors.green,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(99),
+                          child: LinearProgressIndicator(
+                            value: prediction.confidence.clamp(0, 1),
+                            minHeight: 8,
+                            color: CcColors.green,
+                            backgroundColor: CcColors.softStrong,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Uneven yellowing and blotchy leaf pattern match common HLB symptoms.',
+                        ),
                       ],
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Uneven yellowing and blotchy leaf pattern match common HLB symptoms.',
-                      ),
-                    ],
+                    ),
                   ),
-                ),
-                if (!isLowConfidence) ...[
                   const SizedBox(height: 14),
                   TreatmentRecommendationCard(guidance: guidance),
                 ],
@@ -1483,7 +1843,7 @@ class DiagnosisScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          if (isLowConfidence)
+          if (shouldRetakePhoto)
             PrimaryButton(
               label: 'Scan Again',
               icon: Icons.camera_alt_rounded,
@@ -1496,7 +1856,9 @@ class DiagnosisScreen extends StatelessWidget {
               onPressed: () => go(
                   context,
                   TreatmentScreen(
-                      disease: prediction.label, diagnosisId: diagnosisId)),
+                      disease: prediction.label,
+                      diagnosisId: diagnosisId,
+                      confidence: prediction.confidence)),
             ),
         ],
       ),
@@ -1570,11 +1932,16 @@ Future<void> selectLeafImage(BuildContext context, ImageSource source) async {
 }
 
 class TreatmentScreen extends StatelessWidget {
-  const TreatmentScreen(
-      {super.key, required this.disease, required this.diagnosisId});
+  const TreatmentScreen({
+    super.key,
+    required this.disease,
+    required this.diagnosisId,
+    this.confidence,
+  });
 
   final String disease;
   final int diagnosisId;
+  final double? confidence;
 
   @override
   Widget build(BuildContext context) {
@@ -1603,29 +1970,20 @@ class TreatmentScreen extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 10),
-                  const GuideTile(
-                    icon: Icons.yard_outlined,
-                    title: 'Cultural',
-                    text:
-                        'Remove severely affected branches and avoid moving infected plant material.',
-                  ),
-                  const GuideTile(
-                    icon: Icons.spa_outlined,
-                    title: 'Organic',
-                    text:
-                        'Keep trees healthy with proper watering, sanitation, and nutrient balance.',
-                  ),
-                  const GuideTile(
+                  GuideTile(
                     icon: Icons.science_outlined,
-                    title: 'Chemical',
-                    text:
-                        'Coordinate with an agriculture technician before chemical use.',
+                    title: 'Conventional treatment',
+                    text: guidance.conventionalTreatment,
                   ),
-                  const GuideTile(
+                  GuideTile(
+                    icon: Icons.spa_outlined,
+                    title: 'Organic / natural management',
+                    text: guidance.organicTreatment,
+                  ),
+                  GuideTile(
                     icon: Icons.shield_outlined,
                     title: 'Prevention',
-                    text:
-                        'Monitor nearby trees weekly and disinfect tools after pruning.',
+                    text: guidance.prevention,
                   ),
                 ],
               ),
@@ -1636,7 +1994,11 @@ class TreatmentScreen extends StatelessWidget {
             icon: Icons.description_outlined,
             onPressed: () => go(
               context,
-              ReportPreviewScreen(disease: disease, diagnosisId: diagnosisId),
+              ReportPreviewScreen(
+                disease: disease,
+                diagnosisId: diagnosisId,
+                confidence: confidence,
+              ),
             ),
           ),
         ],
@@ -1645,12 +2007,24 @@ class TreatmentScreen extends StatelessWidget {
   }
 }
 
-class ReportPreviewScreen extends StatelessWidget {
-  const ReportPreviewScreen(
-      {super.key, required this.disease, required this.diagnosisId});
+class ReportPreviewScreen extends StatefulWidget {
+  const ReportPreviewScreen({
+    super.key,
+    required this.disease,
+    required this.diagnosisId,
+    this.confidence,
+  });
 
   final String disease;
   final int diagnosisId;
+  final double? confidence;
+
+  @override
+  State<ReportPreviewScreen> createState() => _ReportPreviewScreenState();
+}
+
+class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
+  bool isSubmitting = false;
 
   @override
   Widget build(BuildContext context) {
@@ -1668,17 +2042,37 @@ class ReportPreviewScreen extends StatelessWidget {
             title: 'Barangay Agriculture Office',
             child: Column(
               children: [
-                InfoRow(label: 'Farmer', value: state.farmerName),
-                InfoRow(label: 'Location', value: state.farmerLocation),
+                InfoRow(
+                  label: 'Farmer',
+                  value: state.farmerName.trim().isEmpty
+                      ? 'Tap to add'
+                      : state.farmerName,
+                ),
+                InfoRow(
+                  label: 'Location',
+                  value: state.farmerLocation.trim().isEmpty
+                      ? 'Tap to add'
+                      : state.farmerLocation,
+                ),
                 const InfoRow(label: 'Plant part', value: 'Leaf'),
-                InfoRow(label: 'Diagnosis', value: disease),
-                const InfoRow(label: 'Confidence', value: '91%'),
+                InfoRow(label: 'Diagnosis', value: widget.disease),
+                InfoRow(
+                  label: 'Confidence',
+                  value: widget.confidence == null
+                      ? '-'
+                      : '${(widget.confidence! * 100).toStringAsFixed(0)}%',
+                ),
                 const InfoRow(label: 'Status', value: 'Ready to send'),
                 const InfoRow(
                   label: 'Language',
                   value: 'English, Tagalog, Cebuano',
                 ),
-                InfoRow(label: 'Email', value: state.officeEmail),
+                InfoRow(
+                  label: 'Email',
+                  value: state.officeEmail.trim().isEmpty
+                      ? 'Tap to add'
+                      : state.officeEmail,
+                ),
               ],
             ),
           ),
@@ -1715,23 +2109,198 @@ class ReportPreviewScreen extends StatelessWidget {
           ),
           const Spacer(),
           PrimaryButton(
-            label: 'Queue report offline',
+            label: isSubmitting ? 'Sending report...' : 'Report',
             icon: Icons.outbox_rounded,
             color: CcColors.orange,
-            onPressed: state.consentEnabled
+            isLoading: isSubmitting,
+            onPressed: state.consentEnabled && !isSubmitting
                 ? () async {
-                    await DiagnosisRepository.instance.queueReport(
-                      diagnosisId: diagnosisId,
-                      officeEmail: state.officeEmail,
-                      consent: state.consentEnabled,
-                    );
-                    await DiagnosisRepository.instance.syncQueuedReports();
-                    await state.refreshStats();
-                    if (context.mounted) {
-                      go(context, const OfflineQueueScreen());
+                    final canSend = await ensureReportProfileComplete(context);
+                    if (!canSend || !context.mounted) return;
+                    setState(() => isSubmitting = true);
+                    final wasOnline = state.isOnline;
+                    try {
+                      await DiagnosisRepository.instance.queueReport(
+                        diagnosisId: widget.diagnosisId,
+                        officeEmail: state.officeEmail,
+                        consent: state.consentEnabled,
+                        settings: state.currentSettings(),
+                      );
+                      await DiagnosisRepository.instance.syncQueuedReports();
+                      await state.refreshStats();
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              context.t(
+                                wasOnline
+                                    ? 'Report saved. Sending to barangay now.'
+                                    : 'Report is pending and waiting for internet connection.',
+                              ),
+                            ),
+                          ),
+                        );
+                        go(context, const OfflineQueueScreen());
+                      }
+                    } finally {
+                      if (mounted) setState(() => isSubmitting = false);
                     }
                   }
                 : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Future<bool> ensureReportProfileComplete(BuildContext context) async {
+  final state = AppScope.of(context);
+  if (state.hasCompleteReportProfile) return true;
+
+  final editSettings = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: Text(context.t('Complete farmer information first')),
+        content: Text(
+          context.t(
+            'Please add farmer name, farm location, and barangay email before sending a report.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(context.t('Cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(context.t('Edit settings')),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (editSettings == true && context.mounted) {
+    state.setTab(2);
+    replaceWith(context, const MainShell());
+  }
+  return false;
+}
+
+Future<bool> ensureTermsAgreementAccepted(BuildContext context) async {
+  final state = AppScope.of(context);
+  if (state.termsAccepted) return true;
+
+  final accepted = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: Text(context.t('Terms of agreement')),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                context.t(
+                  'Before using CalamansiCare, please acknowledge how the app handles report information.',
+                ),
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 16),
+              const TermsAgreementPoint(
+                title: 'What we collect',
+                body:
+                    'Device signature, model, Android version, farmer name, farm location, barangay email, diagnosis result, confidence score, report date, and report image when you send a report.',
+              ),
+              const TermsAgreementPoint(
+                title: 'How we use it',
+                body:
+                    'This information is used to save reports offline, avoid duplicate uploads, send reports to the barangay office, and show community disease alerts.',
+              ),
+              const TermsAgreementPoint(
+                title: 'Offline and online storage',
+                body:
+                    'Reports are saved locally on this phone first. When internet is available, approved reports are uploaded to Supabase and may be emailed to the target barangay email.',
+              ),
+              const TermsAgreementPoint(
+                title: 'Farmer responsibility',
+                body:
+                    'The app gives guidance only. Confirm serious disease findings with the local agriculture office before applying treatment.',
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(context.t('I understand and agree')),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (accepted == true) {
+    await state.acceptTermsAgreement();
+    return true;
+  }
+  return false;
+}
+
+class TermsAgreementPoint extends StatelessWidget {
+  const TermsAgreementPoint({
+    super.key,
+    required this.title,
+    required this.body,
+  });
+
+  final String title;
+  final String body;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 4),
+            child: Icon(
+              Icons.check_circle_rounded,
+              color: CcColors.green,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  context.t(title),
+                  style: const TextStyle(
+                    color: CcColors.ink,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  context.t(body),
+                  style: const TextStyle(
+                    color: CcColors.muted,
+                    height: 1.35,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -1745,6 +2314,11 @@ class OfflineQueueScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
+    final statusLabel = state.queuedReportsCount == 0
+        ? 'Sent'
+        : state.isOnline
+            ? 'Ready to send when online'
+            : 'Waiting for internet connection';
     return ScreenFrame(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1752,7 +2326,7 @@ class OfflineQueueScreen extends StatelessWidget {
           TopLine(
             title: 'Offline queue',
             subtitle: 'Reports wait here until internet is available.',
-            pill: state.reportQueued ? 'Waiting' : 'Sent',
+            pill: state.readinessLabel,
           ),
           const SizedBox(height: 16),
           SectionCard(
@@ -1761,9 +2335,7 @@ class OfflineQueueScreen extends StatelessWidget {
               children: [
                 InfoRow(
                   label: 'Status',
-                  value: state.reportQueued
-                      ? 'Queued offline'
-                      : 'Sent to barangay',
+                  value: statusLabel,
                 ),
                 const InfoRow(
                   label: 'Saved database',
@@ -1774,26 +2346,34 @@ class OfflineQueueScreen extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          const NoticeCard(
-            text:
-                'Automatic sending will use Supabase when the phone reconnects to internet.',
+          NoticeCard(
+            text: state.queuedReportsCount == 0
+                ? 'No reports waiting to send'
+                : 'Automatic sending will use Supabase when the phone reconnects to internet.',
           ),
           const Spacer(),
-          OutlineAction(
-            label: 'Try sending now',
-            icon: Icons.wifi_rounded,
-            onTap: () {
-              state.markSent();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    context.t('Report marked as sent for UI demo.'),
+          if (state.queuedReportsCount > 0) ...[
+            OutlineAction(
+              label: 'Try sending now',
+              icon: Icons.wifi_rounded,
+              onTap: () async {
+                await DiagnosisRepository.instance.syncSettings();
+                await DiagnosisRepository.instance.syncQueuedReports();
+                await state.refreshStats();
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      context.t(
+                        'Sync attempted. Reports stay saved locally until Supabase confirms upload.',
+                      ),
+                    ),
                   ),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 10),
+                );
+              },
+            ),
+            const SizedBox(height: 10),
+          ],
           PrimaryButton(
             label: 'Back to home',
             icon: Icons.home_rounded,
@@ -1882,9 +2462,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
 void showHistoryDetailSheet(
   BuildContext context,
-  Map<String, Object?> row,
-  {
-    required Future<void> Function() onDeleted,
+  Map<String, Object?> row, {
+  required Future<void> Function() onDeleted,
 }) {
   final disease = row['disease'] as String? ?? 'Unknown';
   final diagnosisId = row['id'] as int?;
@@ -1892,7 +2471,13 @@ void showHistoryDetailSheet(
   final createdAt = row['created_at'] as String? ?? '';
   final imagePath = row['image_path'] as String?;
   final reportStatus = _reportStatusLabel(row['report_status'] as String?);
-  final hasQueuedReport = row['report_status'] == 'queued';
+  final hasQueuedReport = row['report_status'] == reportStatusWaitingInternet ||
+      row['report_status'] == reportStatusFailedRetry ||
+      row['report_status'] == reportStatusSyncing;
+  final hasAnyReport = row['report_status'] != null;
+  final canReportFromHistory = diagnosisId != null &&
+      !hasAnyReport &&
+      confidence / 100 >= reportAcceptanceConfidenceThreshold;
   final reportEmail = row['report_email'] as String?;
   final reportConsent = row['report_consent'] == null
       ? '-'
@@ -1966,14 +2551,19 @@ void showHistoryDetailSheet(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     InfoRow(label: 'Condition type', value: guidance.kind),
+                    const SizedBox(height: 10),
+                    TreatmentMethodBlock(
+                      icon: Icons.science_outlined,
+                      title: 'Conventional treatment',
+                      text: guidance.conventionalTreatment,
+                      color: CcColors.red,
+                    ),
                     const SizedBox(height: 8),
-                    Text(
-                      guidance.recommendation,
-                      style: const TextStyle(
-                        fontSize: 13.5,
-                        height: 1.4,
-                        color: CcColors.ink,
-                      ),
+                    TreatmentMethodBlock(
+                      icon: Icons.spa_outlined,
+                      title: 'Organic / natural management',
+                      text: guidance.organicTreatment,
+                      color: CcColors.green,
                     ),
                   ],
                 ),
@@ -2021,6 +2611,33 @@ void showHistoryDetailSheet(
                 ),
               ),
               const SizedBox(height: 12),
+              if (canReportFromHistory) ...[
+                PrimaryButton(
+                  label: 'Report this scan',
+                  icon: Icons.description_outlined,
+                  onPressed: () {
+                    Navigator.pop(sheetContext);
+                    go(
+                      context,
+                      ReportPreviewScreen(
+                        disease: disease,
+                        diagnosisId: diagnosisId,
+                        confidence: confidence / 100,
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 10),
+              ] else if (hasAnyReport) ...[
+                const NoticeCard(text: 'Already reported'),
+                const SizedBox(height: 10),
+              ] else if (diagnosisId != null) ...[
+                const NoticeCard(
+                  text:
+                      'Only scans with 80% confidence or higher can be reported.',
+                ),
+                const SizedBox(height: 10),
+              ],
               PrimaryButton(
                 label: 'Delete history',
                 icon: Icons.delete_outline_rounded,
@@ -2171,10 +2788,14 @@ void showHistoryImageDialog(BuildContext context, String imagePath) {
 
 String _reportStatusLabel(String? status) {
   switch (status) {
-    case 'synced':
+    case reportStatusSynced:
       return 'Sent';
-    case 'queued':
-      return 'Queued';
+    case reportStatusWaitingInternet:
+      return 'Waiting for internet connection';
+    case reportStatusSyncing:
+      return 'Sending report...';
+    case reportStatusFailedRetry:
+      return 'Saved locally, will retry';
     default:
       return 'Not reported';
   }
@@ -2233,16 +2854,26 @@ class SettingsScreen extends StatelessWidget {
                   SettingTile(
                     icon: Icons.person_outline,
                     title: 'Name',
-                    value: state.farmerName,
+                    value: state.farmerName.trim().isEmpty
+                        ? 'Tap to add'
+                        : state.farmerName,
                     action: 'Edit',
                     onTap: () => showNameDialog(context),
                   ),
                   SettingTile(
                     icon: Icons.location_on_outlined,
                     title: 'Location',
-                    value: state.farmerLocation,
+                    value: state.farmerLocation.trim().isEmpty
+                        ? 'Tap to add'
+                        : state.farmerLocation,
                     action: 'Edit',
                     onTap: () => showLocationSheet(context),
+                  ),
+                  SettingTile(
+                    icon: Icons.phone_android_rounded,
+                    title: 'Device signature',
+                    value: state.deviceSignature,
+                    action: 'View',
                   ),
                   const SizedBox(height: 2),
                   Align(
@@ -2278,7 +2909,9 @@ class SettingsScreen extends StatelessWidget {
             SettingTile(
               icon: Icons.mail_outline,
               title: 'Barangay email',
-              value: state.officeEmail,
+              value: state.officeEmail.trim().isEmpty
+                  ? 'Tap to add'
+                  : state.officeEmail,
               action: 'Edit',
               onTap: () => showEmailDialog(context),
             ),
@@ -2310,125 +2943,259 @@ class SettingsScreen extends StatelessWidget {
   }
 }
 
-class BarangayReportsScreen extends StatelessWidget {
+class BarangayReportsScreen extends StatefulWidget {
   const BarangayReportsScreen({super.key});
 
   @override
+  State<BarangayReportsScreen> createState() => _BarangayReportsScreenState();
+}
+
+class _BarangayReportsScreenState extends State<BarangayReportsScreen> {
+  late Future<List<CommunityReport>> _future;
+  CommunityReport? _selectedReport;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = DiagnosisRepository.instance.fetchCommunityReports();
+  }
+
+  List<CommunityReport> get _fallbackReports {
+    return const [
+      CommunityReport(
+        id: 'sample-hlb',
+        disease: 'HLB (Greening)',
+        confidence: .91,
+        location: 'Calinan',
+        priority: 'High priority',
+        deviceSignature: 'CC-Sample-001',
+        reportedAt: 'Sample report',
+      ),
+      CommunityReport(
+        id: 'sample-canker',
+        disease: 'Citrus Canker',
+        confidence: .92,
+        location: 'Toril',
+        priority: 'Needs review',
+        deviceSignature: 'CC-Sample-002',
+        reportedAt: 'Sample report',
+      ),
+      CommunityReport(
+        id: 'sample-nutrient',
+        disease: 'Nutrient Deficiency',
+        confidence: .90,
+        location: 'Mintal',
+        priority: 'Needs review',
+        deviceSignature: 'CC-Sample-003',
+        reportedAt: 'Sample report',
+      ),
+    ];
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final state = AppScope.of(context);
     return ScreenFrame(
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const TopLine(
-              title: 'Barangay reports',
-              subtitle: 'Agriculture office monitoring view.',
-              pill: 'Online',
-            ),
-            const SizedBox(height: 16),
-            SectionCard(
-              title: 'Disease alerts map',
-              child: Container(
-                height: 132,
-                decoration: BoxDecoration(
-                  color: CcColors.blue,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const AlertMap(),
+      child: FutureBuilder<List<CommunityReport>>(
+        future: _future,
+        builder: (context, snapshot) {
+          final reports = snapshot.data?.isNotEmpty == true
+              ? snapshot.data!
+              : _fallbackReports;
+          if (_selectedReport == null && reports.isNotEmpty) {
+            _selectedReport = reports.first;
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TopLine(
+                title: 'Community reports',
+                subtitle:
+                    'Reports submitted by other farmers using CalamansiCare.',
+                pill: state.readinessLabel,
               ),
-            ),
-            const SizedBox(height: 14),
-            const HistoryTile(
-              disease: 'HLB / Greening',
-              status: '91% confidence',
-              date: 'Calinan',
-              confidence: '',
-            ),
-            const HistoryTile(
-              disease: 'Citrus Canker',
-              status: '88% confidence',
-              date: 'Toril',
-              confidence: '',
-            ),
-            const HistoryTile(
-              disease: 'Nutrient Def.',
-              status: '84% confidence',
-              date: 'Mintal',
-              confidence: '',
-            ),
-            const SizedBox(height: 42),
-            PrimaryButton(
-              label: 'Open selected report',
-              icon: Icons.open_in_new_rounded,
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      context.t('Report marked as sent for UI demo.'),
+              const SizedBox(height: 16),
+              SectionCard(
+                title: 'Community overview',
+                child: Column(
+                  children: [
+                    const InfoRow(
+                        label: 'Reports source', value: 'Other app users'),
+                    InfoRow(
+                      label: 'Shared reports',
+                      value: '${reports.length} reports from nearby users',
                     ),
+                    InfoRow(
+                      label: 'Status',
+                      value: state.isOnline
+                          ? 'Needs review'
+                          : 'Waiting for internet connection',
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Expanded(
+                child: RefreshIndicator(
+                  onRefresh: () async {
+                    setState(() {
+                      _future =
+                          DiagnosisRepository.instance.fetchCommunityReports();
+                    });
+                    await _future;
+                  },
+                  child: ListView.builder(
+                    itemCount: reports.length,
+                    itemBuilder: (context, index) {
+                      final report = reports[index];
+                      final selected = _selectedReport?.id == report.id;
+                      return HistoryTile(
+                        disease: report.disease,
+                        status: report.priority,
+                        date: report.location,
+                        confidence:
+                            '${(report.confidence * 100).toStringAsFixed(0)}% confidence',
+                        imageUrl: report.imageUrl,
+                        selected: selected,
+                        onTap: () => setState(() => _selectedReport = report),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
-          ],
-        ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              PrimaryButton(
+                label: 'Review selected report',
+                icon: Icons.open_in_new_rounded,
+                onPressed: _selectedReport == null
+                    ? null
+                    : () => go(
+                          context,
+                          BarangayReportDetailScreen(report: _selectedReport!),
+                        ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 }
 
-class AlertMap extends StatelessWidget {
-  const AlertMap({super.key});
+class BarangayReportDetailScreen extends StatelessWidget {
+  const BarangayReportDetailScreen({super.key, required this.report});
+
+  final CommunityReport report;
 
   @override
   Widget build(BuildContext context) {
-    return const CustomPaint(
-      painter: AlertMapPainter(),
-      child: SizedBox.expand(),
+    final guidance = guidanceFor(report.disease);
+    return ScreenFrame(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TopLine(
+            title: 'Review selected report',
+            subtitle: 'Reports submitted by other farmers using CalamansiCare.',
+            pill: AppScope.of(context).readinessLabel,
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  CommunityReportPhoto(
+                    imageUrl: report.imageUrl,
+                    height: 220,
+                  ),
+                  const SizedBox(height: 12),
+                  SectionCard(
+                    title: 'Diagnosis details',
+                    child: Column(
+                      children: [
+                        InfoRow(label: 'Disease', value: report.disease),
+                        InfoRow(
+                          label: 'Confidence',
+                          value:
+                              '${(report.confidence * 100).toStringAsFixed(0)}%',
+                        ),
+                        InfoRow(label: 'Location', value: report.location),
+                        InfoRow(label: 'Status', value: report.priority),
+                        InfoRow(
+                          label: 'Device signature',
+                          value: report.deviceSignature,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TreatmentRecommendationCard(guidance: guidance),
+                  const SizedBox(height: 12),
+                  GuideTile(
+                    icon: Icons.shield_outlined,
+                    title: 'Prevention',
+                    text: guidance.prevention,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          PrimaryButton(
+            label: 'Back to home',
+            icon: Icons.arrow_back_rounded,
+            onPressed: () => Navigator.pop(context),
+          ),
+        ],
+      ),
     );
   }
 }
 
-class AlertMapPainter extends CustomPainter {
-  const AlertMapPainter();
+class CommunityReportPhoto extends StatelessWidget {
+  const CommunityReportPhoto({
+    super.key,
+    required this.imageUrl,
+    required this.height,
+  });
+
+  final String? imageUrl;
+  final double height;
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final road = Paint()
-      ..color = Colors.white.withValues(alpha: .88)
-      ..strokeWidth = 6
-      ..strokeCap = StrokeCap.round;
-    final thinRoad = Paint()
-      ..color = Colors.white.withValues(alpha: .72)
-      ..strokeWidth = 4
-      ..strokeCap = StrokeCap.round;
-    canvas.drawLine(
-      Offset(size.width * .18, size.height * .55),
-      Offset(size.width * .58, size.height * .55),
-      road,
+  Widget build(BuildContext context) {
+    final url = imageUrl?.trim();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        width: double.infinity,
+        height: height,
+        color: CcColors.softStrong,
+        child: url == null || url.isEmpty
+            ? const Center(
+                child: Icon(
+                  Icons.image_not_supported_outlined,
+                  color: CcColors.muted,
+                  size: 34,
+                ),
+              )
+            : Image.network(
+                url,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const Center(
+                  child: Icon(
+                    Icons.broken_image_outlined,
+                    color: CcColors.muted,
+                    size: 34,
+                  ),
+                ),
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return const Center(child: CircularProgressIndicator());
+                },
+              ),
+      ),
     );
-    canvas.drawLine(
-      Offset(size.width * .50, size.height * .28),
-      Offset(size.width * .50, size.height * .72),
-      road,
-    );
-    canvas.drawLine(
-      Offset(size.width * .50, size.height * .42),
-      Offset(size.width * .80, size.height * .42),
-      thinRoad,
-    );
-
-    void dot(Offset offset, Color color, double radius) {
-      canvas.drawCircle(offset, radius, Paint()..color = color);
-    }
-
-    dot(Offset(size.width * .32, size.height * .66), CcColors.orange, 8);
-    dot(Offset(size.width * .46, size.height * .38), CcColors.green, 8);
-    dot(Offset(size.width * .70, size.height * .46), CcColors.red, 10);
   }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class ScreenFrame extends StatelessWidget {
@@ -2594,7 +3361,25 @@ class DarkScreen extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const OfflinePill(onDark: true),
+                  Row(
+                    children: [
+                      IconButton.filledTonal(
+                        tooltip: context.t('Back'),
+                        onPressed: () => Navigator.maybePop(context),
+                        style: IconButton.styleFrom(
+                          backgroundColor: CcColors.soft,
+                          foregroundColor: CcColors.dark,
+                          minimumSize: const Size(48, 48),
+                        ),
+                        icon: const Icon(Icons.arrow_back_rounded),
+                      ),
+                      const Spacer(),
+                      OfflinePill(
+                        label: AppScope.of(context).readinessLabel,
+                        onDark: true,
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 24),
                   Text(
                     context.t(title),
@@ -2877,12 +3662,14 @@ class PrimaryButton extends StatelessWidget {
     required this.icon,
     required this.onPressed,
     this.color = CcColors.green,
+    this.isLoading = false,
   });
 
   final String label;
   final IconData icon;
   final VoidCallback? onPressed;
   final Color color;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -2900,10 +3687,38 @@ class PrimaryButton extends StatelessWidget {
           ),
           textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
         ),
-        child: Text(
-          context.t(label),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 160),
+          child: isLoading
+              ? Row(
+                  key: const ValueKey('loading'),
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.4,
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Flexible(
+                      child: Text(
+                        context.t(label),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                )
+              : Text(
+                  key: const ValueKey('label'),
+                  context.t(label),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
         ),
       ),
     );
@@ -3034,7 +3849,7 @@ class PriorityCard extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              message,
+              context.t(message),
               style: const TextStyle(
                 fontWeight: FontWeight.w800,
                 fontSize: 13.5,
@@ -3102,9 +3917,9 @@ class TreatmentRecommendationCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Treatment recommendation',
-            style: TextStyle(
+          Text(
+            context.t('Treatment recommendation'),
+            style: const TextStyle(
               fontWeight: FontWeight.w900,
               color: CcColors.red,
               fontSize: 13,
@@ -3113,7 +3928,7 @@ class TreatmentRecommendationCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            guidance.kind,
+            context.t(guidance.kind),
             style: const TextStyle(
               fontWeight: FontWeight.w800,
               fontSize: 13.5,
@@ -3121,11 +3936,79 @@ class TreatmentRecommendationCard extends StatelessWidget {
               color: CcColors.ink,
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            guidance.recommendation,
-            style: const TextStyle(
-                fontSize: 13.5, height: 1.4, color: CcColors.ink),
+          const SizedBox(height: 10),
+          TreatmentMethodBlock(
+            icon: Icons.science_outlined,
+            title: 'Conventional treatment',
+            text: guidance.conventionalTreatment,
+            color: CcColors.red,
+          ),
+          const SizedBox(height: 8),
+          TreatmentMethodBlock(
+            icon: Icons.spa_outlined,
+            title: 'Organic / natural management',
+            text: guidance.organicTreatment,
+            color: CcColors.green,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class TreatmentMethodBlock extends StatelessWidget {
+  const TreatmentMethodBlock({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.text,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String title;
+  final String text;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withValues(alpha: .16)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  context.t(title),
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  context.t(text),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.4,
+                    color: CcColors.ink,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -3197,6 +4080,53 @@ class LowConfidenceNotice extends StatelessWidget {
   }
 }
 
+class RetakePhotoNoticeCard extends StatelessWidget {
+  const RetakePhotoNoticeCard({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: CcColors.orangeSoft,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: CcColors.orange.withValues(alpha: .22)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.photo_camera_back_outlined,
+            color: CcColors.orange,
+            size: 30,
+          ),
+          const SizedBox(height: 14),
+          Text(
+            context.t('Please kindly take/provide another photo'),
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  color: CcColors.ink,
+                  fontWeight: FontWeight.w900,
+                ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            context.t(
+              'To improve accuracy, make sure the photo shows only a calamansi fruit or leaf against a plain background. Avoid other objects, patterned surfaces, shadows, or clutter that can confuse the AI.',
+            ),
+            style: const TextStyle(
+              color: CcColors.ink,
+              fontSize: 13.5,
+              fontWeight: FontWeight.w700,
+              height: 1.45,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class HistoryTile extends StatelessWidget {
   const HistoryTile({
     super.key,
@@ -3204,6 +4134,8 @@ class HistoryTile extends StatelessWidget {
     required this.status,
     required this.date,
     required this.confidence,
+    this.imageUrl,
+    this.selected = false,
     this.onTap,
   });
 
@@ -3211,19 +4143,40 @@ class HistoryTile extends StatelessWidget {
   final String status;
   final String date;
   final String confidence;
+  final String? imageUrl;
+  final bool selected;
   final VoidCallback? onTap;
+
+  Color _statusColor() {
+    return switch (status) {
+      'Sent' => CcColors.green,
+      'Not reported' => CcColors.red,
+      'Saved locally, will retry' => CcColors.red,
+      'Waiting for internet connection' => CcColors.orange,
+      'Sending report...' => CcColors.orange,
+      _ => CcColors.muted,
+    };
+  }
+
+  Color _statusBackground() {
+    return switch (status) {
+      'Sent' => CcColors.soft,
+      'Not reported' => CcColors.red.withValues(alpha: .08),
+      'Saved locally, will retry' => CcColors.red.withValues(alpha: .08),
+      'Waiting for internet connection' => CcColors.orangeSoft,
+      'Sending report...' => CcColors.orangeSoft,
+      _ => CcColors.softStrong,
+    };
+  }
 
   @override
   Widget build(BuildContext context) {
-    final details = [
-      date,
-      if (confidence.isNotEmpty) confidence,
-      context.t(status),
-    ].join(' · ');
+    final statusColor = _statusColor();
+    final statusBackground = _statusBackground();
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Material(
-        color: Colors.white,
+        color: selected ? CcColors.soft : Colors.white,
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
@@ -3232,24 +4185,46 @@ class HistoryTile extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: CcColors.line),
+              border: Border.all(
+                color: selected ? CcColors.green : CcColors.line,
+                width: selected ? 1.5 : 1,
+              ),
             ),
             child: Row(
               children: [
-                Container(
-                  width: 42,
-                  height: 42,
-                  alignment: Alignment.center,
-                  decoration: const BoxDecoration(
-                    color: CcColors.soft,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Text(
-                    context.t(disease).characters.first.toUpperCase(),
-                    style: const TextStyle(
-                      color: CcColors.orange,
-                      fontWeight: FontWeight.w900,
-                    ),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: imageUrl == null || imageUrl!.trim().isEmpty
+                        ? Container(
+                            alignment: Alignment.center,
+                            decoration: const BoxDecoration(
+                              color: CcColors.soft,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Text(
+                              context.t(disease).characters.first.toUpperCase(),
+                              style: const TextStyle(
+                                color: CcColors.orange,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          )
+                        : Image.network(
+                            imageUrl!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              alignment: Alignment.center,
+                              color: CcColors.soft,
+                              child: const Icon(
+                                Icons.broken_image_outlined,
+                                color: CcColors.muted,
+                                size: 22,
+                              ),
+                            ),
+                          ),
                   ),
                 ),
                 const SizedBox(width: 14),
@@ -3268,15 +4243,49 @@ class HistoryTile extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Text(
-                        details,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: CcColors.muted,
-                          fontWeight: FontWeight.w700,
-                        ),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          Text(
+                            date,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: CcColors.muted,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          if (confidence.isNotEmpty)
+                            Text(
+                              confidence,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: CcColors.muted,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusBackground,
+                              borderRadius: BorderRadius.circular(99),
+                            ),
+                            child: Text(
+                              context.t(status),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: statusColor,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -3759,87 +4768,90 @@ void showLocationSheet(BuildContext context) {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          context.t('Location'),
-                          style: Theme.of(context).textTheme.titleLarge,
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: context.t('Close'),
-                        onPressed: () => Navigator.pop(sheetContext),
-                        icon: const Icon(Icons.close_rounded),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: controller,
-                    textCapitalization: TextCapitalization.words,
-                    decoration: InputDecoration(
-                      labelText: context.t('Farm location'),
-                      prefixIcon: const Icon(Icons.place_outlined),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                    onChanged: (value) => setSheetState(() => query = value),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final suggestion in matches)
-                        ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: MediaQuery.sizeOf(context).width - 72,
-                          ),
-                          child: ActionChip(
-                            label: Text(
-                              suggestion,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              context.t('Location'),
+                              style: Theme.of(context).textTheme.titleLarge,
                             ),
-                            onPressed: () {
-                              controller.text = suggestion;
-                              setSheetState(() => query = suggestion);
-                            },
+                          ),
+                          IconButton(
+                            tooltip: context.t('Close'),
+                            onPressed: () => Navigator.pop(sheetContext),
+                            icon: const Icon(Icons.close_rounded),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: controller,
+                        textCapitalization: TextCapitalization.words,
+                        decoration: InputDecoration(
+                          labelText: context.t('Farm location'),
+                          prefixIcon: const Icon(Icons.place_outlined),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
                           ),
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  OutlineAction(
-                    label: state.isDetectingLocation
-                        ? 'Checking phone location...'
-                        : 'Use phone location',
-                    icon: Icons.my_location_rounded,
-                    onTap: state.isDetectingLocation ? () {} : usePhoneLocation,
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    context.t(state.locationNote),
-                    style: const TextStyle(
-                      color: CcColors.muted,
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  PrimaryButton(
-                    label: 'Save location',
-                    icon: Icons.check_rounded,
-                    onPressed: () {
-                      final value = controller.text.trim();
-                      if (value.isNotEmpty) {
-                        state.setFarmerLocation(value);
-                      }
-                      Navigator.pop(sheetContext);
-                    },
-                  ),
+                        onChanged: (value) =>
+                            setSheetState(() => query = value),
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final suggestion in matches)
+                            ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxWidth: MediaQuery.sizeOf(context).width - 72,
+                              ),
+                              child: ActionChip(
+                                label: Text(
+                                  suggestion,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                onPressed: () {
+                                  controller.text = suggestion;
+                                  setSheetState(() => query = suggestion);
+                                },
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      OutlineAction(
+                        label: state.isDetectingLocation
+                            ? 'Checking phone location...'
+                            : 'Use phone location',
+                        icon: Icons.my_location_rounded,
+                        onTap: state.isDetectingLocation
+                            ? () {}
+                            : usePhoneLocation,
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        context.t(state.locationNote),
+                        style: const TextStyle(
+                          color: CcColors.muted,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      PrimaryButton(
+                        label: 'Save location',
+                        icon: Icons.check_rounded,
+                        onPressed: () {
+                          final value = controller.text.trim();
+                          if (value.isNotEmpty) {
+                            state.setFarmerLocation(value);
+                          }
+                          Navigator.pop(sheetContext);
+                        },
+                      ),
                     ],
                   ),
                 ),

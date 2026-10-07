@@ -24,8 +24,9 @@ class DiseaseClassifier {
   ) async {
     final interpreter = await _load();
     final source = image.decodeImage(imageBytes);
-    if (source == null)
+    if (source == null) {
       throw const FormatException('The selected file is not a valid image.');
+    }
 
     final inputShape = interpreter.getInputTensor(0).shape;
     if (inputShape.length != 4 || inputShape[0] != 1 || inputShape[3] != 3) {
@@ -102,9 +103,8 @@ class DiseaseClassifier {
   }
 
   Future<Interpreter> _load() async {
-  return _interpreter ??=
-      await Interpreter.fromAsset('assets/model.tflite');
-}
+    return _interpreter ??= await Interpreter.fromAsset('assets/model.tflite');
+  }
 
   // NOTE: The bundled model (CalamansiCare_MobileNetV2) has its own
   // Rescaling/Normalization step baked into the graph (`truediv` by 127.5,
@@ -137,7 +137,8 @@ class DiseaseClassifier {
       ];
 
   bool _looksAlreadyNormalized(List<double> values) {
-    final allInRange = values.every((value) => value >= -1e-6 && value <= 1 + 1e-6);
+    final allInRange =
+        values.every((value) => value >= -1e-6 && value <= 1 + 1e-6);
     final sum = values.fold<double>(0, (total, value) => total + value);
     return allInRange && (sum - 1.0).abs() < 0.02;
   }

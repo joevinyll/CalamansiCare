@@ -6,7 +6,12 @@
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart",
-      "args": ["--dart-define-from-file=env/dev.json"]
+      "toolArgs": ["--dart-define-from-file=env/dev.json"],
+      "env": {
+        "TEMP": "D:\\Temp\\Flutter",
+        "TMP": "D:\\Temp\\Flutter",
+        "GRADLE_USER_HOME": "D:\\GradleCache"
+      }
     }
   ]
 }
