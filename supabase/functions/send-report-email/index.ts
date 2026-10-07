@@ -1,3 +1,5 @@
+/// <reference lib="deno.ns" />
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
