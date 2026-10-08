@@ -132,7 +132,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Community reports'), findsOneWidget);
-    expect(find.text('Review selected report'), findsOneWidget);
+    expect(
+      find.text('Please connect to the internet to see barangay reports.'),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 }

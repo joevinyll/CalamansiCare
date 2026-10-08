@@ -238,6 +238,14 @@ class AppText {
       cebuano:
           'AI disease detection ug giya sa pagtambal para sa calamansi farmers.',
     },
+    'Preparing CalamansiCare': {
+      tagalog: 'Inihahanda ang CalamansiCare',
+      cebuano: 'Giandam ang CalamansiCare',
+    },
+    'Loading saved settings and reports.': {
+      tagalog: 'Nilo-load ang naka-save na settings at reports.',
+      cebuano: 'Gi-load ang na-save nga settings ug reports.',
+    },
     'Run AI diagnosis offline using your phone camera.': {
       tagalog: 'Magpatakbo ng AI diagnosis offline gamit ang camera ng phone.',
       cebuano: 'Padagana ang AI diagnosis offline gamit ang camera sa phone.',
@@ -432,6 +440,10 @@ class AppText {
     'Checking image color, spots, texture, and shape.': {
       tagalog: 'Sinusuri ang kulay, batik, texture, at hugis sa larawan.',
       cebuano: 'Gisusi ang kolor, mga lama, texture, ug porma sa hulagway.',
+    },
+    'Please wait while AI checks the photo.': {
+      tagalog: 'Maghintay habang sinusuri ng AI ang larawan.',
+      cebuano: 'Palihug hulat samtang gisusi sa AI ang hulagway.',
     },
     'Analyzed photo': {
       tagalog: 'Nasuring larawan',
@@ -656,9 +668,17 @@ class AppText {
       tagalog: 'Naka-save na database',
       cebuano: 'Na-save nga database',
     },
+    'Saved in': {
+      tagalog: 'Naka-save sa',
+      cebuano: 'Na-save sa',
+    },
     'SQLite local history': {
       tagalog: 'Lokal na history ng SQLite',
       cebuano: 'Lokal nga history sa SQLite',
+    },
+    'This phone': {
+      tagalog: 'Sa phone na ito',
+      cebuano: 'Sa kini nga phone',
     },
     'Target email': {tagalog: 'Target na email', cebuano: 'Target email'},
     'Automatic sending will use Supabase when the phone reconnects to internet.':
@@ -668,9 +688,56 @@ class AppText {
       cebuano:
           'Mogamit ug Supabase ang automatic sending kung mobalik ang internet.',
     },
+    'Reports will send automatically when internet is available.': {
+      tagalog: 'Awtomatikong ipapadala ang ulat kapag may internet.',
+      cebuano: 'Awtomatikong ipadala ang report kung naay internet.',
+    },
+    'Connect to the internet first.': {
+      tagalog: 'Kumonekta muna sa internet.',
+      cebuano: 'Konek una sa internet.',
+    },
+    'Please connect to the internet to see barangay reports.': {
+      tagalog:
+          'Kumonekta muna sa internet para makita ang mga ulat ng barangay.',
+      cebuano: 'Konek una sa internet para makita ang mga report sa barangay.',
+    },
+    'No barangay reports yet. Please try again later.': {
+      tagalog: 'Wala pang ulat ng barangay. Subukan muli mamaya.',
+      cebuano: 'Wala pay report sa barangay. Sulayi usab unya.',
+    },
     'Try sending now': {
       tagalog: 'Subukang ipadala ngayon',
       cebuano: 'Sulayi ug padala karon',
+    },
+    'Sending now...': {
+      tagalog: 'Ipinapadala ngayon...',
+      cebuano: 'Gipadala karon...',
+    },
+    'Retry upload': {
+      tagalog: 'Subukang i-upload muli',
+      cebuano: 'Sulayi usab ug upload',
+    },
+    'Report is saved locally. Tap retry when internet is stable.': {
+      tagalog:
+          'Naka-save ang ulat sa phone. Subukang muli kapag stable ang internet.',
+      cebuano:
+          'Na-save ang report sa phone. Sulayi usab kung stable na ang internet.',
+    },
+    'Report sent successfully.': {
+      tagalog: 'Matagumpay na naipadala ang ulat.',
+      cebuano: 'Malampuson nga napadala ang report.',
+    },
+    'Still saved locally. Please check internet or Supabase setup, then retry.':
+        {
+      tagalog:
+          'Naka-save pa rin sa phone. Suriin ang internet o Supabase setup, tapos subukan muli.',
+      cebuano:
+          'Na-save gihapon sa phone. Susiha ang internet o Supabase setup, unya sulayi usab.',
+    },
+    'Report is still waiting. Please connect to the internet and try again.': {
+      tagalog:
+          'Naghihintay pa ang ulat. Kumonekta sa internet at subukan muli.',
+      cebuano: 'Naghulat pa ang report. Konek sa internet ug sulayi usab.',
     },
     'Report marked as sent for UI demo.': {
       tagalog: 'Namarkahan na naipadala ang ulat para sa UI demo.',
@@ -687,6 +754,10 @@ class AppText {
     'Saved scans and report status from SQLite.': {
       tagalog: 'Mga na-save na scan at status ng ulat mula sa SQLite.',
       cebuano: 'Mga na-save nga scan ug status sa report gikan sa SQLite.',
+    },
+    'Saved scans and report status on this phone.': {
+      tagalog: 'Mga na-save na scan at status ng ulat sa phone na ito.',
+      cebuano: 'Mga na-save nga scan ug status sa report sa kini nga phone.',
     },
     'Queued': {tagalog: 'Nakapila', cebuano: 'Nakapila'},
     'Healthy': {tagalog: 'Malusog', cebuano: 'Himsog'},
@@ -753,6 +824,13 @@ class AppText {
     },
     'Name': {tagalog: 'Pangalan', cebuano: 'Ngalan'},
     'Location': {tagalog: 'Lokasyon', cebuano: 'Lokasyon'},
+    'Manual location is better for farm tracking. Type the farm area, purok, or barangay clearly.':
+        {
+      tagalog:
+          'Mas mabuti ang manual na lokasyon para matukoy nang mas tama ang farm. Ilagay nang malinaw ang lugar, purok, o barangay.',
+      cebuano:
+          'Mas maayo ang manual nga lokasyon para mas sakto matultolan ang farm. Ibutang og klaro ang lugar, purok, o barangay.',
+    },
     'Device signature': {
       tagalog: 'Pirma ng device',
       cebuano: 'Pirma sa device',
@@ -969,14 +1047,25 @@ class AppState extends ChangeNotifier {
   Future<void> checkConnectivityAndSync() async {
     final result = await Connectivity().checkConnectivity();
     final hasNetwork = result.any((item) => item != ConnectivityResult.none);
+    final hasInternet = hasNetwork && await _hasUsableInternet();
     final wasOnline = isOnline;
-    isOnline = hasNetwork;
+    isOnline = hasInternet;
     notifyListeners();
     if (isOnline) {
       await DiagnosisRepository.instance.syncSettings();
       await DiagnosisRepository.instance.syncQueuedReports();
       await refreshStats();
       if (!wasOnline) notifyListeners();
+    }
+  }
+
+  Future<bool> _hasUsableInternet() async {
+    try {
+      final lookup = await InternetAddress.lookup('supabase.com')
+          .timeout(const Duration(seconds: 4));
+      return lookup.isNotEmpty && lookup.first.rawAddress.isNotEmpty;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -1116,18 +1205,30 @@ class CalamansiCareApp extends StatefulWidget {
 class _CalamansiCareAppState extends State<CalamansiCareApp> {
   late final AppState state =
       AppState(persistSettings: widget.enableSettingsPersistence);
+  late final Future<void> _startupFuture;
 
   @override
   void initState() {
     super.initState();
+    _startupFuture = _loadApp();
+  }
+
+  Future<void> _loadApp() async {
+    await Future.wait([
+      _loadAppData(),
+      Future<void>.delayed(const Duration(seconds: 4)),
+    ]);
+  }
+
+  Future<void> _loadAppData() async {
     if (widget.enableSettingsPersistence) {
-      state.loadSavedSettings();
+      await state.loadSavedSettings();
     }
     if (widget.enableConnectivityMonitor) {
-      state.startConnectivityMonitor();
+      await state.startConnectivityMonitor();
     }
     if (widget.enableInitialStatsRefresh) {
-      state.refreshStats();
+      await state.refreshStats();
     }
   }
 
@@ -1169,6 +1270,22 @@ class _CalamansiCareAppState extends State<CalamansiCareApp> {
                   ),
                 ),
               ),
+              snackBarTheme: SnackBarThemeData(
+                behavior: SnackBarBehavior.floating,
+                backgroundColor: CcColors.dark,
+                elevation: 10,
+                insetPadding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: CcColors.lime.withValues(alpha: .55)),
+                ),
+                contentTextStyle: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  height: 1.35,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
               textTheme: const TextTheme(
                 headlineLarge: TextStyle(
                   fontSize: 32,
@@ -1206,10 +1323,83 @@ class _CalamansiCareAppState extends State<CalamansiCareApp> {
                 ),
               ),
             ),
-            home: const WelcomeScreen(),
+            home: FutureBuilder<void>(
+              future: _startupFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return const StartupLoadingScreen();
+                }
+                return const WelcomeScreen();
+              },
+            ),
           ),
         );
       },
+    );
+  }
+}
+
+class StartupLoadingScreen extends StatelessWidget {
+  const StartupLoadingScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: CcColors.hero,
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const BrandMark(onDark: true),
+                const SizedBox(height: 38),
+                Container(
+                  width: 126,
+                  height: 126,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .10),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: CcColors.lime.withValues(alpha: .55),
+                      width: 2,
+                    ),
+                  ),
+                  child: const Center(
+                    child: SizedBox(
+                      width: 54,
+                      height: 54,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 5,
+                        color: CcColors.lime,
+                        backgroundColor: CcColors.green,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 30),
+                Text(
+                  context.t('Preparing CalamansiCare'),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        color: Colors.white,
+                      ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  context.t('Loading saved settings and reports.'),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1234,10 +1424,10 @@ class WelcomeScreen extends StatelessWidget {
                       Positioned.fill(
                         child: CustomPaint(painter: HeroLeafPainter()),
                       ),
-                      const Positioned(
+                      Positioned(
                         top: 8,
                         right: 24,
-                        child: OfflinePill(),
+                        child: OfflinePill(label: state.readinessLabel),
                       ),
                       Padding(
                         padding: const EdgeInsets.fromLTRB(24, 28, 24, 26),
@@ -1567,6 +1757,7 @@ class CheckingScreen extends StatefulWidget {
 
 class _CheckingScreenState extends State<CheckingScreen> {
   String? _error;
+  bool _isAnalyzing = true;
 
   @override
   void initState() {
@@ -1584,7 +1775,12 @@ class _CheckingScreenState extends State<CheckingScreen> {
         // Below the 50% floor: don't save this as a diagnosis and don't let
         // a wild guess (e.g. a photo of anything but a leaf) reach the
         // farmer looking like a real result.
-        if (mounted) setState(() => _error = lowConfidenceRejectionMessage);
+        if (mounted) {
+          setState(() {
+            _error = lowConfidenceRejectionMessage;
+            _isAnalyzing = false;
+          });
+        }
         return;
       }
 
@@ -1605,7 +1801,12 @@ class _CheckingScreenState extends State<CheckingScreen> {
                 diagnosisId: diagnosisId));
       }
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) {
+        setState(() {
+          _error = error.toString();
+          _isAnalyzing = false;
+        });
+      }
     }
   }
 
@@ -1668,13 +1869,28 @@ class _CheckingScreenState extends State<CheckingScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         if (_error == null) ...[
-                          LinearProgressIndicator(
-                            minHeight: 7,
-                            borderRadius: BorderRadius.circular(99),
-                            color: CcColors.green,
-                            backgroundColor: CcColors.softStrong,
+                          Center(
+                            child: SizedBox(
+                              width: 56,
+                              height: 56,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 5,
+                                color: _isAnalyzing
+                                    ? CcColors.green
+                                    : CcColors.lime,
+                                backgroundColor: CcColors.softStrong,
+                              ),
+                            ),
                           ),
                           const SizedBox(height: 16),
+                          Text(
+                            context.t('Please wait while AI checks the photo.'),
+                            style: const TextStyle(
+                              color: CcColors.ink,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
                           Text(
                             context.t(
                               'Checking image color, spots, texture, and shape.',
@@ -2063,10 +2279,6 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                       : '${(widget.confidence! * 100).toStringAsFixed(0)}%',
                 ),
                 const InfoRow(label: 'Status', value: 'Ready to send'),
-                const InfoRow(
-                  label: 'Language',
-                  value: 'English, Tagalog, Cebuano',
-                ),
                 InfoRow(
                   label: 'Email',
                   value: state.officeEmail.trim().isEmpty
@@ -2118,7 +2330,6 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                     final canSend = await ensureReportProfileComplete(context);
                     if (!canSend || !context.mounted) return;
                     setState(() => isSubmitting = true);
-                    final wasOnline = state.isOnline;
                     try {
                       await DiagnosisRepository.instance.queueReport(
                         diagnosisId: widget.diagnosisId,
@@ -2126,14 +2337,14 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                         consent: state.consentEnabled,
                         settings: state.currentSettings(),
                       );
-                      await DiagnosisRepository.instance.syncQueuedReports();
-                      await state.refreshStats();
+                      await state.checkConnectivityAndSync();
                       if (context.mounted) {
+                        final sentNow = state.queuedReportsCount == 0;
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
                               context.t(
-                                wasOnline
+                                sentNow
                                     ? 'Report saved. Sending to barangay now.'
                                     : 'Report is pending and waiting for internet connection.',
                               ),
@@ -2308,8 +2519,15 @@ class TermsAgreementPoint extends StatelessWidget {
   }
 }
 
-class OfflineQueueScreen extends StatelessWidget {
+class OfflineQueueScreen extends StatefulWidget {
   const OfflineQueueScreen({super.key});
+
+  @override
+  State<OfflineQueueScreen> createState() => _OfflineQueueScreenState();
+}
+
+class _OfflineQueueScreenState extends State<OfflineQueueScreen> {
+  bool isSyncing = false;
 
   @override
   Widget build(BuildContext context) {
@@ -2338,8 +2556,8 @@ class OfflineQueueScreen extends StatelessWidget {
                   value: statusLabel,
                 ),
                 const InfoRow(
-                  label: 'Saved database',
-                  value: 'SQLite local history',
+                  label: 'Saved in',
+                  value: 'This phone',
                 ),
                 InfoRow(label: 'Target email', value: state.officeEmail),
               ],
@@ -2349,28 +2567,30 @@ class OfflineQueueScreen extends StatelessWidget {
           NoticeCard(
             text: state.queuedReportsCount == 0
                 ? 'No reports waiting to send'
-                : 'Automatic sending will use Supabase when the phone reconnects to internet.',
+                : 'Reports will send automatically when internet is available.',
           ),
           const Spacer(),
           if (state.queuedReportsCount > 0) ...[
             OutlineAction(
-              label: 'Try sending now',
+              label: isSyncing ? 'Sending now...' : 'Try sending now',
               icon: Icons.wifi_rounded,
-              onTap: () async {
-                await DiagnosisRepository.instance.syncSettings();
-                await DiagnosisRepository.instance.syncQueuedReports();
-                await state.refreshStats();
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      context.t(
-                        'Sync attempted. Reports stay saved locally until Supabase confirms upload.',
-                      ),
-                    ),
-                  ),
-                );
-              },
+              isLoading: isSyncing,
+              onTap: isSyncing
+                  ? null
+                  : () async {
+                      setState(() => isSyncing = true);
+                      final before = state.queuedReportsCount;
+                      await state.checkConnectivityAndSync();
+                      if (mounted) setState(() => isSyncing = false);
+                      if (!context.mounted) return;
+                      final sent = before > 0 && state.queuedReportsCount == 0;
+                      final message = sent
+                          ? 'Report sent successfully.'
+                          : 'Report is still waiting. Please connect to the internet and try again.';
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(context.t(message))),
+                      );
+                    },
             ),
             const SizedBox(height: 10),
           ],
@@ -2414,7 +2634,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               children: [
                 const TopLine(
                   title: 'History',
-                  subtitle: 'Saved scans and report status from SQLite.',
+                  subtitle: 'Saved scans and report status on this phone.',
                 ),
                 const SizedBox(height: 16),
                 if (snapshot.connectionState == ConnectionState.waiting)
@@ -2474,6 +2694,7 @@ void showHistoryDetailSheet(
   final hasQueuedReport = row['report_status'] == reportStatusWaitingInternet ||
       row['report_status'] == reportStatusFailedRetry ||
       row['report_status'] == reportStatusSyncing;
+  final canRetryReport = diagnosisId != null && hasQueuedReport;
   final hasAnyReport = row['report_status'] != null;
   final canReportFromHistory = diagnosisId != null &&
       !hasAnyReport &&
@@ -2611,7 +2832,37 @@ void showHistoryDetailSheet(
                 ),
               ),
               const SizedBox(height: 12),
-              if (canReportFromHistory) ...[
+              if (canRetryReport) ...[
+                NoticeCard(
+                  text: row['report_status'] == reportStatusSynced
+                      ? 'Already reported'
+                      : 'Report is saved locally. Tap retry when internet is stable.',
+                ),
+                const SizedBox(height: 10),
+                PrimaryButton(
+                  label: 'Retry upload',
+                  icon: Icons.sync_rounded,
+                  onPressed: () async {
+                    final appState = AppScope.of(context);
+                    await DiagnosisRepository.instance
+                        .markDiagnosisReportForRetry(diagnosisId);
+                    await appState.checkConnectivityAndSync();
+                    await onDeleted();
+                    if (sheetContext.mounted) {
+                      Navigator.pop(sheetContext);
+                    }
+                    if (context.mounted) {
+                      final message = appState.queuedReportsCount == 0
+                          ? 'Report sent successfully.'
+                          : 'Report is still waiting. Please connect to the internet and try again.';
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(context.t(message))),
+                      );
+                    }
+                  },
+                ),
+                const SizedBox(height: 10),
+              ] else if (canReportFromHistory) ...[
                 PrimaryButton(
                   label: 'Report this scan',
                   icon: Icons.description_outlined,
@@ -2960,48 +3211,39 @@ class _BarangayReportsScreenState extends State<BarangayReportsScreen> {
     _future = DiagnosisRepository.instance.fetchCommunityReports();
   }
 
-  List<CommunityReport> get _fallbackReports {
-    return const [
-      CommunityReport(
-        id: 'sample-hlb',
-        disease: 'HLB (Greening)',
-        confidence: .91,
-        location: 'Calinan',
-        priority: 'High priority',
-        deviceSignature: 'CC-Sample-001',
-        reportedAt: 'Sample report',
-      ),
-      CommunityReport(
-        id: 'sample-canker',
-        disease: 'Citrus Canker',
-        confidence: .92,
-        location: 'Toril',
-        priority: 'Needs review',
-        deviceSignature: 'CC-Sample-002',
-        reportedAt: 'Sample report',
-      ),
-      CommunityReport(
-        id: 'sample-nutrient',
-        disease: 'Nutrient Deficiency',
-        confidence: .90,
-        location: 'Mintal',
-        priority: 'Needs review',
-        deviceSignature: 'CC-Sample-003',
-        reportedAt: 'Sample report',
-      ),
-    ];
-  }
-
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
+    if (!state.isOnline) {
+      return ScreenFrame(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TopLine(
+              title: 'Community reports',
+              subtitle:
+                  'Reports submitted by other farmers using CalamansiCare.',
+              pill: state.readinessLabel,
+            ),
+            const SizedBox(height: 16),
+            const NoticeCard(
+              text: 'Please connect to the internet to see barangay reports.',
+            ),
+            const Spacer(),
+            PrimaryButton(
+              label: 'Back to home',
+              icon: Icons.home_rounded,
+              onPressed: () => replaceWith(context, const MainShell()),
+            ),
+          ],
+        ),
+      );
+    }
     return ScreenFrame(
       child: FutureBuilder<List<CommunityReport>>(
         future: _future,
         builder: (context, snapshot) {
-          final reports = snapshot.data?.isNotEmpty == true
-              ? snapshot.data!
-              : _fallbackReports;
+          final reports = snapshot.data ?? const <CommunityReport>[];
           if (_selectedReport == null && reports.isNotEmpty) {
             _selectedReport = reports.first;
           }
@@ -3022,9 +3264,8 @@ class _BarangayReportsScreenState extends State<BarangayReportsScreen> {
                     const InfoRow(
                         label: 'Reports source', value: 'Other app users'),
                     InfoRow(
-                      label: 'Shared reports',
-                      value: '${reports.length} reports from nearby users',
-                    ),
+                        label: 'Shared reports',
+                        value: '${reports.length} reports from nearby users'),
                     InfoRow(
                       label: 'Status',
                       value: state.isOnline
@@ -3036,32 +3277,41 @@ class _BarangayReportsScreenState extends State<BarangayReportsScreen> {
               ),
               const SizedBox(height: 14),
               Expanded(
-                child: RefreshIndicator(
-                  onRefresh: () async {
-                    setState(() {
-                      _future =
-                          DiagnosisRepository.instance.fetchCommunityReports();
-                    });
-                    await _future;
-                  },
-                  child: ListView.builder(
-                    itemCount: reports.length,
-                    itemBuilder: (context, index) {
-                      final report = reports[index];
-                      final selected = _selectedReport?.id == report.id;
-                      return HistoryTile(
-                        disease: report.disease,
-                        status: report.priority,
-                        date: report.location,
-                        confidence:
-                            '${(report.confidence * 100).toStringAsFixed(0)}% confidence',
-                        imageUrl: report.imageUrl,
-                        selected: selected,
-                        onTap: () => setState(() => _selectedReport = report),
-                      );
-                    },
-                  ),
-                ),
+                child: snapshot.connectionState == ConnectionState.waiting
+                    ? const Center(child: CircularProgressIndicator())
+                    : reports.isEmpty
+                        ? const NoticeCard(
+                            text:
+                                'No barangay reports yet. Please try again later.',
+                          )
+                        : RefreshIndicator(
+                            onRefresh: () async {
+                              setState(() {
+                                _future = DiagnosisRepository.instance
+                                    .fetchCommunityReports();
+                              });
+                              await _future;
+                            },
+                            child: ListView.builder(
+                              itemCount: reports.length,
+                              itemBuilder: (context, index) {
+                                final report = reports[index];
+                                final selected =
+                                    _selectedReport?.id == report.id;
+                                return HistoryTile(
+                                  disease: report.disease,
+                                  status: report.priority,
+                                  date: report.location,
+                                  confidence:
+                                      '${(report.confidence * 100).toStringAsFixed(0)}% confidence',
+                                  imageUrl: report.imageUrl,
+                                  selected: selected,
+                                  onTap: () =>
+                                      setState(() => _selectedReport = report),
+                                );
+                              },
+                            ),
+                          ),
               ),
               const SizedBox(height: 12),
               PrimaryButton(
@@ -3731,11 +3981,13 @@ class OutlineAction extends StatelessWidget {
     required this.label,
     required this.icon,
     required this.onTap,
+    this.isLoading = false,
   });
 
   final String label;
   final IconData icon;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final bool isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -3753,10 +4005,39 @@ class OutlineAction extends StatelessWidget {
           ),
           textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
         ),
-        child: Text(
-          context.t(label),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 160),
+          child: isLoading
+              ? Row(
+                  key: const ValueKey('outline-loading'),
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.4,
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(CcColors.green),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Flexible(
+                      child: Text(
+                        context.t(label),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                )
+              : Text(
+                  key: const ValueKey('outline-label'),
+                  context.t(label),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
         ),
       ),
     );
@@ -4796,6 +5077,39 @@ void showLocationSheet(BuildContext context) {
                         ),
                         onChanged: (value) =>
                             setSheetState(() => query = value),
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: CcColors.soft,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: CcColors.line),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(
+                              Icons.info_outline_rounded,
+                              size: 18,
+                              color: CcColors.green,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                context.t(
+                                  'Manual location is better for farm tracking. Type the farm area, purok, or barangay clearly.',
+                                ),
+                                style: const TextStyle(
+                                  color: CcColors.ink,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(height: 12),
                       Wrap(

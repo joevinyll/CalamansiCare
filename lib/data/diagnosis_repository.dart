@@ -469,6 +469,17 @@ class DiagnosisRepository {
     ''', [limit]);
   }
 
+  Future<void> markDiagnosisReportForRetry(int diagnosisId) async {
+    final db = await _db;
+    await db.update(
+      'queued_reports',
+      {'status': reportStatusWaitingInternet},
+      where:
+          "diagnosis_id = ? AND status IN ('failed_retry', 'syncing', 'waiting_internet')",
+      whereArgs: [diagnosisId],
+    );
+  }
+
   Future<void> deleteDiagnosis(int diagnosisId) async {
     final db = await _db;
     await db.transaction((txn) async {
