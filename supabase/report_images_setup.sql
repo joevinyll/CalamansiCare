@@ -8,13 +8,13 @@ select
   id::text as id,
   disease,
   confidence,
+  coalesce(nullif(farmer_name, ''), '---') as farmer_name,
   coalesce(nullif(farmer_location, ''), 'Barangay area') as farmer_location,
   case
-    when disease ilike '%HLB%' or disease ilike '%Greening%' then 'High priority'
-    when confidence >= 80 then 'Open'
-    else 'Review'
+    when disease ilike '%HLB%' or disease ilike '%Greening%' or disease ilike '%Canker%' then 'High risk'
+    when disease ilike '%Healthy%' or disease ilike '%Nutrient%' then 'Low risk'
+    else 'Medium risk'
   end as priority,
-  device_signature,
   image_url,
   coalesce(reported_at, received_at, created_at) as reported_at
 from public.diagnosis_reports

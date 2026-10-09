@@ -42,15 +42,16 @@ const locationSuggestions = [
   'Digos City, Davao del Sur',
 ];
 
-/// Confidence banding for the on-device classifier. Matches the standard
-/// range used for agricultural image classifiers: below 0.40 the model is
-/// unreliable and the result is rejected outright (never shown as if it
-/// were real), 0.40-0.60 is shown but flagged as low confidence, and 0.60+
-/// is accepted cleanly.
+/// Confidence banding for the on-device classifier.
+///
+/// Scans below [reportAcceptanceConfidenceThreshold] are treated as unclear:
+/// they are not saved in History and the farmer is asked to take another photo.
 enum ConfidenceTier { accepted, lowConfidence, rejected }
 
 ConfidenceTier confidenceTier(double confidence) {
-  if (confidence >= 0.60) return ConfidenceTier.accepted;
+  if (confidence >= reportAcceptanceConfidenceThreshold) {
+    return ConfidenceTier.accepted;
+  }
   if (confidence >= 0.40) return ConfidenceTier.lowConfidence;
   return ConfidenceTier.rejected;
 }
@@ -60,6 +61,62 @@ const lowConfidenceWarningMessage =
 const lowConfidenceRejectionMessage =
     'Disease could not be identified. Please ensure the leaf lesion is centered and clear.';
 const reportAcceptanceConfidenceThreshold = 0.80;
+
+class AccountCreatedNeedsSignInException implements Exception {
+  const AccountCreatedNeedsSignInException();
+}
+
+String accountErrorMessage(Object error) {
+  final text = error.toString().toLowerCase();
+  debugPrint('CalamansiCare account error: $error');
+  if (text.contains('email not confirmed') ||
+      text.contains('not confirmed') ||
+      text.contains('confirm')) {
+    return 'Please confirm your email first, then sign in again.';
+  }
+  if (text.contains('invalid email') ||
+      text.contains('email_address_invalid') ||
+      text.contains('unable to validate email') ||
+      text.contains('email address is invalid')) {
+    return 'Please enter a valid email address.';
+  }
+  if (text.contains('invalid login') ||
+      text.contains('invalid credentials') ||
+      text.contains('invalid email or password')) {
+    return 'Email or password is incorrect. Please try again.';
+  }
+  if (text.contains('already registered') ||
+      text.contains('already exists') ||
+      text.contains('user already')) {
+    return 'This email already has an account. Please sign in instead.';
+  }
+  if (text.contains('signup') && text.contains('disabled')) {
+    return 'Account creation is not enabled yet. Please check Supabase settings.';
+  }
+  if ((text.contains('password') && text.contains('weak')) ||
+      text.contains('weak_password') ||
+      text.contains('password should be')) {
+    return 'Please use a stronger password.';
+  }
+  if (text.contains('rate limit') ||
+      text.contains('over_email_send_rate_limit') ||
+      text.contains('security purposes')) {
+    return 'Please wait a minute, then try again.';
+  }
+  if (text.contains('database error saving new user')) {
+    return 'Account setup needs a Supabase database check.';
+  }
+  if (text.contains('socket') ||
+      text.contains('network') ||
+      text.contains('failed host lookup') ||
+      text.contains('connection')) {
+    return 'Please check your internet connection and try again.';
+  }
+  if (text.contains('supabase') || text.contains('not configured')) {
+    return 'Account setup is not ready yet. Please check Supabase settings.';
+  }
+  return 'Account action failed. Please check internet, email, and password.';
+}
 
 class DiseaseGuidance {
   const DiseaseGuidance({
@@ -191,6 +248,31 @@ DiseaseGuidance guidanceFor(String disease) {
   }
 }
 
+String diseaseDescriptionFor(String disease) {
+  switch (disease) {
+    case 'Healthy Fruit':
+      return 'The fruit looks normal, with no clear disease marks. Keep checking often so problems can be found early.';
+    case 'Healthy Leaf':
+      return 'The leaf looks healthy, with no clear disease signs. Continue regular watering, nutrition, and farm sanitation.';
+    case 'HLB (Greening)':
+      return 'A serious bacterial disease that can cause uneven yellow leaves, weak growth, and poor fruit quality. It can spread through infected planting material and citrus psyllids.';
+    case 'Citrus Canker':
+      return 'A bacterial disease that often creates raised corky spots on leaves, stems, or fruit. It spreads easily through wind-driven rain and infected plant material.';
+    case 'Anthracnose':
+      return 'A fungal disease that can cause dark sunken spots, twig dieback, and fruit damage, especially during wet or stressful conditions.';
+    case 'Melanose':
+      return 'A fungal disease linked to dead twigs and old infected wood. It can leave rough dark specks or streaks on fruit and leaves.';
+    case 'Citrus Scab':
+      return 'A fungal disease that can make rough raised scab marks on young leaves and fruit. It is common when new growth stays wet.';
+    case 'Brown Spot':
+      return 'A fungal disease that can cause brown leaf spots, fruit spots, and leaf drop. Wet weather and dense canopies can make it worse.';
+    case 'Nutrient Deficiency':
+      return 'A nutrition problem, not an infection. Leaves may yellow or look weak when the tree lacks nutrients, has root stress, or has soil problems.';
+    default:
+      return 'The condition needs a clearer photo or field checking before making a treatment decision.';
+  }
+}
+
 class CcColors {
   static const bg = Color(0xFFF0F4EA);
   static const bgAlt = Color(0xFFF7FAF3);
@@ -234,6 +316,10 @@ class AppText {
       tagalog: 'Pumili ng wika',
       cebuano: 'Pili ug pinulongan',
     },
+    'Choose language / Pumili ng wika / Pili og pinulongan': {
+      tagalog: 'Choose language / Pumili ng wika / Pili og pinulongan',
+      cebuano: 'Choose language / Pumili ng wika / Pili og pinulongan',
+    },
     'AI disease detection and treatment guide for calamansi farmers.': {
       tagalog:
           'AI disease detection at gabay sa paggamot para sa calamansi farmers.',
@@ -257,9 +343,41 @@ class AppText {
       cebuano: 'Field summary',
     },
     'Checks': {tagalog: 'Checks', cebuano: 'Checks'},
+    'Checks details': {
+      tagalog: 'Detalye ng checks',
+      cebuano: 'Detalye sa checks',
+    },
+    'Sent reports': {
+      tagalog: 'Naipadalang reports',
+      cebuano: 'Napadalang reports',
+    },
+    'No checks yet.': {
+      tagalog: 'Wala pang checks.',
+      cebuano: 'Wala pay checks.',
+    },
+    'No reports waiting.': {
+      tagalog: 'Walang report na naghihintay.',
+      cebuano: 'Walay report nga naghuwat.',
+    },
+    'No sent reports yet.': {
+      tagalog: 'Wala pang naipadalang reports.',
+      cebuano: 'Wala pay napadalang reports.',
+    },
+    'Tap to see details': {
+      tagalog: 'Pindutin para makita ang detalye',
+      cebuano: 'Pislita aron makita ang detalye',
+    },
     'Start plant check': {
       tagalog: 'Simulan ang pagsusuri',
       cebuano: 'Sugdi ang pagsusi',
+    },
+    'Sign in or create account': {
+      tagalog: 'Mag-sign in o gumawa ng account',
+      cebuano: 'Sign in o paghimo ug account',
+    },
+    'You can check plants without an account.': {
+      tagalog: 'Puwede kang magsuri ng halaman kahit walang account.',
+      cebuano: 'Pwede ka magsusi sa tanom bisan walay account.',
     },
     'Terms of agreement': {
       tagalog: 'Kasunduan sa paggamit',
@@ -320,6 +438,43 @@ class AppText {
       tagalog: 'Nauunawaan ko at sumasang-ayon ako',
       cebuano: 'Nakasabot ko ug mouyon ko',
     },
+    'About CalamansiCare': {
+      tagalog: 'Tungkol sa CalamansiCare',
+      cebuano: 'Mahitungod sa CalamansiCare',
+    },
+    'App information and terms': {
+      tagalog: 'Impormasyon ng app at kasunduan',
+      cebuano: 'Impormasyon sa app ug kasabutan',
+    },
+    'CalamansiCare helps farmers check calamansi leaves and fruits using an offline AI model, view simple disease information, save scan history on the phone, and prepare reports for the barangay agriculture office.':
+        {
+      tagalog:
+          'Tinutulungan ng CalamansiCare ang farmers na suriin ang dahon at bunga ng calamansi gamit ang offline AI model, makita ang simpleng impormasyon tungkol sa sakit, mag-save ng scan history sa phone, at maghanda ng report para sa barangay agriculture office.',
+      cebuano:
+          'Gitabangan sa CalamansiCare ang farmers nga susihon ang dahon ug bunga sa calamansi gamit ang offline AI model, makita ang simple nga impormasyon sa sakit, ma-save ang scan history sa phone, ug maandam ang report para sa barangay agriculture office.',
+    },
+    'The treatment and recommendation content is based on expert-verified guidance for calamansi disease management and should be used as support for farmer decisions.':
+        {
+      tagalog:
+          'Ang treatment at recommendation content ay batay sa expert-verified guidance para sa calamansi disease management at dapat gamitin bilang gabay sa desisyon ng farmer.',
+      cebuano:
+          'Ang treatment ug recommendation content gibase sa expert-verified guidance para sa calamansi disease management ug gamiton isip giya sa desisyon sa farmer.',
+    },
+    'Important reminder': {
+      tagalog: 'Mahalagang paalala',
+      cebuano: 'Importante nga pahinumdom',
+    },
+    'For serious or spreading symptoms, farmers should still confirm findings with the local agriculture office before removing trees or applying chemical treatment.':
+        {
+      tagalog:
+          'Para sa seryoso o kumakalat na sintomas, dapat pa ring magpa-confirm ang farmers sa local agriculture office bago magtanggal ng puno o gumamit ng kemikal na treatment.',
+      cebuano:
+          'Para sa seryoso o mokaylap nga sintomas, kinahanglan gihapon magpa-confirm ang farmers sa local agriculture office bago magtangtang ug kahoy o mogamit ug kemikal nga treatment.',
+    },
+    'Read app details and terms of agreement.': {
+      tagalog: 'Basahin ang detalye ng app at kasunduan.',
+      cebuano: 'Basaha ang detalye sa app ug kasabutan.',
+    },
     'Home': {tagalog: 'Home', cebuano: 'Home'},
     'Check': {tagalog: 'Suriin', cebuano: 'Susi'},
     'History': {tagalog: 'Kasaysayan', cebuano: 'Kasaysayan'},
@@ -333,9 +488,38 @@ class AppText {
     },
     'Offline ready': {tagalog: 'Handa offline', cebuano: 'Andam offline'},
     'Online ready': {tagalog: 'Handa online', cebuano: 'Andam online'},
+    'Internet connected': {
+      tagalog: 'May internet',
+      cebuano: 'Naay internet',
+    },
+    'Offline checking ready': {
+      tagalog: 'Handa ang offline checking',
+      cebuano: 'Andam ang offline checking',
+    },
     'Waiting for internet connection': {
       tagalog: 'Naghihintay ng internet connection',
       cebuano: 'Naghulat sa internet connection',
+    },
+    'Waiting for internet': {
+      tagalog: 'Naghihintay ng internet',
+      cebuano: 'Naghulat sa internet',
+    },
+    'Saved on phone': {
+      tagalog: 'Naka-save sa phone',
+      cebuano: 'Na-save sa phone',
+    },
+    'Sending...': {
+      tagalog: 'Ipinapadala...',
+      cebuano: 'Gipadala...',
+    },
+    'Could not send. Tap to try again': {
+      tagalog: 'Hindi naipadala. Pindutin para subukan muli',
+      cebuano: 'Wala napadala. Pislita aron sulayan usab',
+    },
+    'Retry': {tagalog: 'Subukan muli', cebuano: 'Sulayi usab'},
+    'No internet. Your report is saved and will send later.': {
+      tagalog: 'Walang internet. Naka-save ang report at ipapadala mamaya.',
+      cebuano: 'Walay internet. Na-save ang report ug ipadala unya.',
     },
     'Saved locally, will retry': {
       tagalog: 'Naka-save lokal, susubukan muli',
@@ -368,9 +552,21 @@ class AppText {
       tagalog: 'Handa nang ipadala kapag online',
       cebuano: 'Andam ipadala kung online',
     },
+    'Report Summary': {
+      tagalog: 'Buod ng Report',
+      cebuano: 'Summary sa Report',
+    },
+    'Details of the latest reported scan.': {
+      tagalog: 'Detalye ng pinakahuling nai-report na scan.',
+      cebuano: 'Detalye sa pinakabag-o nga gi-report nga scan.',
+    },
     'No reports waiting to send': {
       tagalog: 'Walang ulat na naghihintay ipadala',
       cebuano: 'Walay report nga naghuwat ipadala',
+    },
+    'No reported scans yet.': {
+      tagalog: 'Wala pang nai-report na scan.',
+      cebuano: 'Wala pay gi-report nga scan.',
     },
     'Sending report...': {
       tagalog: 'Ipinapadala ang ulat...',
@@ -626,6 +822,13 @@ class AppText {
       tagalog: 'Payagan ang pagpapadala ng detalye ng pagsusuri',
       cebuano: 'Tugoti ang pagpadala sa detalye sa pagsusi',
     },
+    'Shared to barangay: name, location, diagnosis, and photo. Shared to other farmers: diagnosis, photo, and general area only.':
+        {
+      tagalog:
+          'Ipinapadala sa barangay: pangalan, lokasyon, diagnosis, at larawan. Nakikita ng ibang farmer: diagnosis, larawan, at pangkalahatang lugar lamang.',
+      cebuano:
+          'Ipadala sa barangay: ngalan, lokasyon, diagnosis, ug hulagway. Makita sa ubang farmer: diagnosis, hulagway, ug kinatibuk-ang lugar lamang.',
+    },
     'Required before report can be emailed through Supabase.': {
       tagalog: 'Kailangan bago ma-email ang ulat gamit ang Supabase.',
       cebuano: 'Kinahanglan bago ma-email ang report gamit ang Supabase.',
@@ -656,6 +859,27 @@ class AppText {
     'HLB / Greening report': {
       tagalog: 'Ulat ng HLB / Greening',
       cebuano: 'Report sa HLB / Greening',
+    },
+    'Reported scan': {
+      tagalog: 'Nai-report na scan',
+      cebuano: 'Gi-report nga scan',
+    },
+    'Scan image': {
+      tagalog: 'Larawan ng scan',
+      cebuano: 'Hulagway sa scan',
+    },
+    'Report details': {
+      tagalog: 'Detalye ng report',
+      cebuano: 'Detalye sa report',
+    },
+    'Farmer': {tagalog: 'Farmer', cebuano: 'Mag-uuma'},
+    'Scan date': {
+      tagalog: 'Petsa ng scan',
+      cebuano: 'Petsa sa scan',
+    },
+    'Report date': {
+      tagalog: 'Petsa ng report',
+      cebuano: 'Petsa sa report',
     },
     'Status': {tagalog: 'Status', cebuano: 'Status'},
     'Queued offline': {
@@ -729,6 +953,15 @@ class AppText {
       tagalog: 'Matagumpay na naipadala ang ulat.',
       cebuano: 'Malampuson nga napadala ang report.',
     },
+    'Report sent': {
+      tagalog: 'Naipadala ang ulat',
+      cebuano: 'Napadala ang report',
+    },
+    'Your report was sent to the barangay.': {
+      tagalog: 'Naipadala na ang ulat sa barangay.',
+      cebuano: 'Napadala na ang report sa barangay.',
+    },
+    'OK': {tagalog: 'OK', cebuano: 'OK'},
     'Still saved locally. Please check internet or Supabase setup, then retry.':
         {
       tagalog:
@@ -959,13 +1192,269 @@ class AppText {
     },
     'Open': {tagalog: 'Bukas', cebuano: 'Abli'},
     'Email address': {tagalog: 'Email address', cebuano: 'Email address'},
+    'Account': {tagalog: 'Account', cebuano: 'Account'},
+    'Sign in to sync reports and restore saved data after reinstalling.': {
+      tagalog:
+          'Mag-sign in para ma-sync ang reports at maibalik ang naka-save na data pagkatapos mag-reinstall.',
+      cebuano:
+          'Pag-sign in para ma-sync ang reports ug mabalik ang na-save nga data human mag-reinstall.',
+    },
+    'Account connected': {
+      tagalog: 'Nakakonekta ang account',
+      cebuano: 'Nakakonekta ang account',
+    },
+    'Save with account': {
+      tagalog: 'I-save gamit ang account',
+      cebuano: 'I-save gamit ang account',
+    },
+    'Create an account or sign in before sending reports online.': {
+      tagalog:
+          'Gumawa ng account o mag-sign in bago magpadala ng report online.',
+      cebuano:
+          'Paghimo ug account o pag-sign in bago magpadala ug report online.',
+    },
+    'Supabase is not configured on this build. Add env keys before using accounts.':
+        {
+      tagalog:
+          'Hindi pa naka-configure ang Supabase sa build na ito. Ilagay muna ang env keys bago gumamit ng account.',
+      cebuano:
+          'Wala pa ma-configure ang Supabase sa build niini. Ibutang una ang env keys bago mogamit ug account.',
+    },
+    'Sign out': {tagalog: 'Mag-sign out', cebuano: 'Sign out'},
+    'Sign out?': {tagalog: 'Mag-sign out?', cebuano: 'Sign out?'},
+    'Stay signed in': {
+      tagalog: 'Manatiling naka-sign in',
+      cebuano: 'Magpabilin nga naka-sign in',
+    },
+    'When you log out, this account\'s saved data on this phone will be deleted. Reports already sent online will stay in Barangay Reports.':
+        {
+      tagalog:
+          'Kapag nag-log out ka, mabubura sa phone ang naka-save na data ng account na ito. Mananatili online ang mga report na naipadala na.',
+      cebuano:
+          'Kung mag-log out ka, mapapas ang naka-save nga data sa account nga kini sa phone. Magpabilin online ang mga report nga napadala na.',
+    },
+    'Create account': {
+      tagalog: 'Gumawa ng account',
+      cebuano: 'Paghimo ug account',
+    },
+    'Sign in': {tagalog: 'Mag-sign in', cebuano: 'Sign in'},
+    'Already have an account? Sign in': {
+      tagalog: 'May account na? Mag-sign in',
+      cebuano: 'Naa nay account? Sign in',
+    },
+    'New here? Create account': {
+      tagalog: 'Bago dito? Gumawa ng account',
+      cebuano: 'Bag-o diri? Paghimo ug account',
+    },
+    'Sign in with Google': {
+      tagalog: 'Mag-sign in gamit ang Google',
+      cebuano: 'Sign in gamit ang Google',
+    },
+    'Google sign-in opened. Complete it in the browser.': {
+      tagalog: 'Nabuksan ang Google sign-in. Tapusin ito sa browser.',
+      cebuano: 'Naablihan ang Google sign-in. Humanon kini sa browser.',
+    },
+    'Google sign-in is not ready yet. Check Supabase Google setup.': {
+      tagalog:
+          'Hindi pa handa ang Google sign-in. Suriin ang Supabase Google setup.',
+      cebuano:
+          'Dili pa andam ang Google sign-in. Susiha ang Supabase Google setup.',
+    },
+    'You can still scan offline. Sign in is only needed before sending reports online.':
+        {
+      tagalog:
+          'Puwede pa ring mag-scan offline. Kailangan lang ang sign in bago magpadala ng report online.',
+      cebuano:
+          'Pwede gihapon mag-scan offline. Kinahanglan lang ang sign in bago magpadala ug report online.',
+    },
+    'Continue offline': {
+      tagalog: 'Magpatuloy offline',
+      cebuano: 'Padayon offline',
+    },
+    'Use this account to restore synced reports later.': {
+      tagalog:
+          'Gamitin ang account na ito para maibalik ang synced reports sa susunod.',
+      cebuano: 'Gamita kini nga account para mabalik ang synced reports puhon.',
+    },
+    'Use your account to sync and restore reports.': {
+      tagalog: 'Gamitin ang account para ma-sync at maibalik ang reports.',
+      cebuano: 'Gamita ang account para ma-sync ug mabalik ang reports.',
+    },
+    'Farmer account': {
+      tagalog: 'Account ng magsasaka',
+      cebuano: 'Account sa mag-uuma',
+    },
+    'Account details': {
+      tagalog: 'Detalye ng account',
+      cebuano: 'Detalye sa account',
+    },
+    'Password': {tagalog: 'Password', cebuano: 'Password'},
+    'Forgot password?': {
+      tagalog: 'Nakalimutan ang password?',
+      cebuano: 'Nakalimot sa password?',
+    },
+    'Creating account...': {
+      tagalog: 'Gumagawa ng account...',
+      cebuano: 'Naghimo ug account...',
+    },
+    'Signing in...': {
+      tagalog: 'Nagsa-sign in...',
+      cebuano: 'Nag-sign in...',
+    },
+    'Enter an email and a password with at least 6 letters.': {
+      tagalog:
+          'Maglagay ng email at password na may hindi bababa sa 6 na letra.',
+      cebuano:
+          'Ibutang ang email ug password nga adunay labing menos 6 ka letra.',
+    },
+    'Please complete name, farm location, and barangay email.': {
+      tagalog:
+          'Pakikumpleto ang pangalan, lokasyon ng farm, at barangay email.',
+      cebuano:
+          'Palihug kompletoha ang ngalan, lokasyon sa farm, ug barangay email.',
+    },
+    'Please complete this information before sending:': {
+      tagalog: 'Pakikumpleto muna ito bago ipadala:',
+      cebuano: 'Palihug kompletoha una kini bago ipadala:',
+    },
+    'Farm location': {
+      tagalog: 'Lokasyon ng farm',
+      cebuano: 'Lokasyon sa farm',
+    },
+    'Please check your email, then sign in.': {
+      tagalog: 'Pakisuri ang email, pagkatapos mag-sign in.',
+      cebuano: 'Palihug susiha ang email, unya pag-sign in.',
+    },
+    'Please confirm your email first, then sign in again.': {
+      tagalog: 'Pakikumpirma muna ang email, pagkatapos mag-sign in ulit.',
+      cebuano: 'Palihug kumpirmaha una ang email, unya sign in usab.',
+    },
+    'Email or password is incorrect. Please try again.': {
+      tagalog: 'Mali ang email o password. Pakisubukan muli.',
+      cebuano: 'Sayop ang email o password. Palihug sulayi usab.',
+    },
+    'Please check your internet connection and try again.': {
+      tagalog: 'Pakisuri ang internet connection at subukan muli.',
+      cebuano: 'Palihug susiha ang internet connection ug sulayi usab.',
+    },
+    'Please enter a valid email address.': {
+      tagalog: 'Maglagay ng tamang email address.',
+      cebuano: 'Ibutang ang sakto nga email address.',
+    },
+    'This email already has an account. Please sign in instead.': {
+      tagalog: 'May account na ang email na ito. Mag-sign in na lang.',
+      cebuano: 'Naa nay account kini nga email. Pag-sign in na lang.',
+    },
+    'Account creation is not enabled yet. Please check Supabase settings.': {
+      tagalog:
+          'Hindi pa naka-enable ang paggawa ng account. Pakisuri ang Supabase settings.',
+      cebuano:
+          'Wala pa ma-enable ang paghimo ug account. Palihug susiha ang Supabase settings.',
+    },
+    'Please use a stronger password.': {
+      tagalog: 'Gumamit ng mas malakas na password.',
+      cebuano: 'Gamit ug mas lig-on nga password.',
+    },
+    'Please wait a minute, then try again.': {
+      tagalog: 'Maghintay ng isang minuto, pagkatapos subukan muli.',
+      cebuano: 'Hulat usa ka minuto, unya sulayi usab.',
+    },
+    'Account setup needs a Supabase database check.': {
+      tagalog: 'Kailangang suriin ang Supabase database setup ng account.',
+      cebuano: 'Kinahanglan susihon ang Supabase database setup sa account.',
+    },
+    'Account setup is not ready yet. Please check Supabase settings.': {
+      tagalog:
+          'Hindi pa handa ang account setup. Pakisuri ang Supabase settings.',
+      cebuano:
+          'Dili pa andam ang account setup. Palihug susiha ang Supabase settings.',
+    },
+    'Account created. Check email if confirmation is required.': {
+      tagalog:
+          'Nagawa na ang account. Suriin ang email kung kailangan ng confirmation.',
+      cebuano:
+          'Nahimo na ang account. Susiha ang email kung kinahanglan ug confirmation.',
+    },
+    'Account created and signed in.': {
+      tagalog: 'Nagawa na ang account at naka-sign in na.',
+      cebuano: 'Nahimo na ang account ug naka-sign in na.',
+    },
+    'Signed in successfully.': {
+      tagalog: 'Matagumpay na naka-sign in.',
+      cebuano: 'Malampuson nga naka-sign in.',
+    },
+    'Account action failed. Please check internet, email, and password.': {
+      tagalog:
+          'Hindi natuloy ang account action. Suriin ang internet, email, at password.',
+      cebuano:
+          'Wala nadayon ang account action. Susiha ang internet, email, ug password.',
+    },
+    'Forgot password': {
+      tagalog: 'Nakalimutan ang password',
+      cebuano: 'Nakalimot sa password',
+    },
+    'Enter your email to receive a reset link.': {
+      tagalog: 'Ilagay ang email para makatanggap ng reset link.',
+      cebuano: 'Ibutang ang email para makadawat ug reset link.',
+    },
+    'Password reset email sent.': {
+      tagalog: 'Naipadala na ang password reset email.',
+      cebuano: 'Napadala na ang password reset email.',
+    },
+    'Could not send reset email. Try again.': {
+      tagalog: 'Hindi maipadala ang reset email. Subukan muli.',
+      cebuano: 'Dili mapadala ang reset email. Sulayi usab.',
+    },
+    'Send reset email': {
+      tagalog: 'Ipadala ang reset email',
+      cebuano: 'Ipadala ang reset email',
+    },
+    'Sending email...': {
+      tagalog: 'Nagpapadala ng email...',
+      cebuano: 'Nagpadala ug email...',
+    },
+    'Sign in to send this report': {
+      tagalog: 'Mag-sign in para ipadala ang report',
+      cebuano: 'Sign in para ipadala ang report',
+    },
+    'Your scan is already saved on your phone. Sign in when you are ready to send it online.':
+        {
+      tagalog:
+          'Naka-save na ang scan sa phone. Mag-sign in kapag handa ka nang ipadala ito online.',
+      cebuano:
+          'Na-save na ang scan sa phone. Pag-sign in kung andam na ka ipadala kini online.',
+    },
+    'Not now, keep it on my phone': {
+      tagalog: 'Hindi muna, itago sa phone',
+      cebuano: 'Dili sa karon, itago sa phone',
+    },
+    'Signed in': {tagalog: 'Naka-sign in', cebuano: 'Naka-sign in'},
+    'Sign in to restore reports': {
+      tagalog: 'Mag-sign in para maibalik ang reports',
+      cebuano: 'Sign in para mabalik ang reports',
+    },
+    'Please enter the farmer name.': {
+      tagalog: 'Ilagay ang pangalan ng farmer.',
+      cebuano: 'Ibutang ang ngalan sa farmer.',
+    },
+    'Show password': {
+      tagalog: 'Ipakita ang password',
+      cebuano: 'Ipakita ang password',
+    },
+    'Hide password': {
+      tagalog: 'Itago ang password',
+      cebuano: 'Tagoa ang password',
+    },
     'Cancel': {tagalog: 'Kanselahin', cebuano: 'Kanselahon'},
     'Save': {tagalog: 'I-save', cebuano: 'I-save'},
   };
 
   static String of(String language, String text) {
     if (language == english) return text;
-    return values[text]?[language] ?? text;
+    return values[text]?[language] ??
+        DiseaseTranslations.descriptions[text]?[language] ??
+        DiseaseTranslations.guidance[text]?[language] ??
+        text;
   }
 }
 
@@ -980,6 +1469,15 @@ String timeGreetingKey([DateTime? now]) {
   return 'Good evening';
 }
 
+String _phonePreferredLanguage(String fallback) {
+  final locale = Platform.localeName.toLowerCase();
+  if (locale.startsWith('fil') || locale.startsWith('tl')) {
+    return AppText.tagalog;
+  }
+  if (locale.startsWith('ceb')) return AppText.cebuano;
+  return supportedLanguages.contains(fallback) ? fallback : AppText.english;
+}
+
 class AppState extends ChangeNotifier {
   AppState({this.persistSettings = true}) {
     termsAccepted = !persistSettings;
@@ -987,6 +1485,7 @@ class AppState extends ChangeNotifier {
 
   final bool persistSettings;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  StreamSubscription<dynamic>? _authSubscription;
 
   String language = 'English';
   int tabIndex = 0;
@@ -1004,21 +1503,34 @@ class AppState extends ChangeNotifier {
   String deviceModel = 'Device';
   String deviceBrand = 'Unknown';
   String androidVersion = 'Unknown';
+  bool authConfigured = false;
+  String accountEmail = '';
   int checksCount = 0;
   int queuedReportsCount = 0;
   int sentReportsCount = 0;
   double? lastConfidence;
 
-  String get readinessLabel => isOnline ? 'Online ready' : 'Offline ready';
+  String get readinessLabel =>
+      isOnline ? 'Internet connected' : 'Offline checking ready';
+  bool get isSignedIn => accountEmail.trim().isNotEmpty;
   bool get hasCompleteReportProfile =>
       farmerName.trim().isNotEmpty &&
       farmerLocation.trim().isNotEmpty &&
       officeEmail.trim().isNotEmpty;
+  List<String> get missingReportProfileFields {
+    final missing = <String>[];
+    if (farmerName.trim().isEmpty) missing.add('Farmer name');
+    if (farmerLocation.trim().isEmpty) missing.add('Farm location');
+    if (officeEmail.trim().isEmpty) missing.add('Barangay email');
+    return missing;
+  }
 
   Future<void> loadSavedSettings() async {
     if (!persistSettings) return;
     final settings = await DiagnosisRepository.instance.loadSettings();
-    language = settings.language;
+    language = settings.termsAccepted
+        ? settings.language
+        : _phonePreferredLanguage(settings.language);
     consentEnabled = settings.consentEnabled;
     termsAccepted = settings.termsAccepted;
     fontScale = settings.fontScale.clamp(.9, 1.3);
@@ -1031,6 +1543,11 @@ class AppState extends ChangeNotifier {
     deviceModel = settings.deviceModel;
     deviceBrand = settings.deviceBrand;
     androidVersion = settings.androidVersion;
+    authConfigured = DiagnosisRepository.instance.isSupabaseConfigured;
+    accountEmail = DiagnosisRepository.instance.currentUser?.email ?? '';
+    if (isSignedIn) {
+      await restoreSignedInProfile();
+    }
     notifyListeners();
     DiagnosisRepository.instance.syncSettings();
   }
@@ -1134,6 +1651,164 @@ class AppState extends ChangeNotifier {
     _persistSettings();
   }
 
+  Future<void> refreshAuthState() async {
+    authConfigured = DiagnosisRepository.instance.isSupabaseConfigured;
+    accountEmail = DiagnosisRepository.instance.currentUser?.email ?? '';
+    notifyListeners();
+  }
+
+  Future<void> startAuthMonitor() async {
+    await _authSubscription?.cancel();
+    final stream = DiagnosisRepository.instance.authStateChanges;
+    if (stream == null) return;
+    _authSubscription = stream.listen((authState) async {
+      final sessionEmail = authState.session?.user.email ??
+          DiagnosisRepository.instance.currentUser?.email ??
+          '';
+      accountEmail = sessionEmail;
+      authConfigured = DiagnosisRepository.instance.isSupabaseConfigured;
+      notifyListeners();
+      if (sessionEmail.trim().isNotEmpty) {
+        await restoreSignedInProfile();
+      }
+    });
+  }
+
+  Future<void> restoreSignedInProfile() async {
+    var restoredSettings = false;
+    final profile = await DiagnosisRepository.instance.fetchFarmerProfile();
+    if (profile != null) {
+      _applyFarmerProfile(profile);
+      language = supportedLanguages.contains(profile.language)
+          ? profile.language
+          : language;
+      consentEnabled = profile.consentEnabled;
+      fontScale = profile.fontScale;
+      restoredSettings = true;
+    }
+    if (!hasCompleteReportProfile) {
+      final reportProfile =
+          await DiagnosisRepository.instance.fetchLatestReportProfile();
+      if (reportProfile != null) {
+        _applyFarmerProfile(reportProfile, onlyMissing: true);
+        restoredSettings = true;
+      }
+    }
+    if (restoredSettings) {
+      await _persistSettings();
+    }
+    await DiagnosisRepository.instance.restoreSignedInReports();
+    await refreshStats();
+  }
+
+  void _applyFarmerProfile(
+    FarmerProfile profile, {
+    bool onlyMissing = false,
+  }) {
+    if ((!onlyMissing || farmerName.trim().isEmpty) &&
+        profile.farmerName.trim().isNotEmpty) {
+      farmerName = profile.farmerName;
+    }
+    if ((!onlyMissing || farmerLocation.trim().isEmpty) &&
+        profile.farmerLocation.trim().isNotEmpty) {
+      farmerLocation = profile.farmerLocation;
+      locationNote = 'Restored from account';
+    }
+    if ((!onlyMissing || officeEmail.trim().isEmpty) &&
+        profile.officeEmail.trim().isNotEmpty) {
+      officeEmail = profile.officeEmail;
+    }
+  }
+
+  Future<void> createAccount({
+    required String email,
+    required String password,
+  }) async {
+    await DiagnosisRepository.instance.signUpWithEmail(
+      email: email,
+      password: password,
+      settings: currentSettings(),
+    );
+    await refreshAuthState();
+    if (!isSignedIn) {
+      try {
+        await DiagnosisRepository.instance.signInWithEmail(
+          email: email,
+          password: password,
+        );
+        await refreshAuthState();
+      } catch (_) {
+        // Some Supabase projects require email confirmation before sign in.
+      }
+    }
+    if (!isSignedIn) {
+      throw const AccountCreatedNeedsSignInException();
+    }
+    try {
+      await DiagnosisRepository.instance.upsertFarmerProfile(currentSettings());
+    } catch (_) {
+      // The account is already active; profile sync can retry with settings sync.
+    }
+    await restoreSignedInProfile();
+  }
+
+  Future<void> signIn({
+    required String email,
+    required String password,
+  }) async {
+    await DiagnosisRepository.instance.signInWithEmail(
+      email: email,
+      password: password,
+    );
+    await refreshAuthState();
+    await restoreSignedInProfile();
+  }
+
+  Future<void> signInWithGoogle() async {
+    await DiagnosisRepository.instance.signInWithGoogle();
+    await refreshAuthState();
+  }
+
+  Future<void> sendPasswordReset(String email) {
+    return DiagnosisRepository.instance.sendPasswordResetEmail(email);
+  }
+
+  Future<void> signOut() async {
+    final clearedSettings = AppSettings(
+      language: language,
+      consentEnabled: true,
+      termsAccepted: false,
+      fontScale: fontScale,
+      farmerName: '',
+      farmerLocation: '',
+      locationNote: 'Location not set',
+      officeEmail: '',
+      deviceId: deviceId,
+      deviceSignature: deviceSignature,
+      deviceModel: deviceModel,
+      deviceBrand: deviceBrand,
+      androidVersion: androidVersion,
+    );
+    try {
+      await DiagnosisRepository.instance.signOut();
+    } catch (_) {
+      // Continue clearing local data so another account cannot see it.
+    }
+    await DiagnosisRepository.instance.clearLocalAccountData(clearedSettings);
+    accountEmail = '';
+    farmerName = '';
+    farmerLocation = '';
+    locationNote = 'Location not set';
+    officeEmail = '';
+    consentEnabled = true;
+    termsAccepted = false;
+    checksCount = 0;
+    queuedReportsCount = 0;
+    sentReportsCount = 0;
+    lastConfidence = null;
+    notifyListeners();
+  }
+
   void setFarmerName(String value) {
     farmerName = value;
     notifyListeners();
@@ -1194,6 +1869,7 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _connectivitySubscription?.cancel();
+    _authSubscription?.cancel();
     super.dispose();
   }
 }
@@ -1249,6 +1925,7 @@ class _CalamansiCareAppState extends State<CalamansiCareApp> {
     if (widget.enableSettingsPersistence) {
       await state.loadSavedSettings();
     }
+    await state.startAuthMonitor();
     if (widget.enableConnectivityMonitor) {
       await state.startConnectivityMonitor();
     }
@@ -1354,6 +2031,9 @@ class _CalamansiCareAppState extends State<CalamansiCareApp> {
                 if (snapshot.connectionState != ConnectionState.done) {
                   return const StartupLoadingScreen();
                 }
+                if (widget.enableSettingsPersistence && state.termsAccepted) {
+                  return const MainShell();
+                }
                 return const WelcomeScreen();
               },
             ),
@@ -1454,24 +2134,32 @@ class WelcomeScreen extends StatelessWidget {
                         right: 24,
                         child: OfflinePill(label: state.readinessLabel),
                       ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(24, 28, 24, 26),
+                      Positioned(
+                        left: 24,
+                        right: 24,
+                        bottom: 18,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Spacer(),
-                            Text(
-                              'CalamansiCare',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .headlineLarge
-                                  ?.copyWith(color: Colors.white),
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'CalamansiCare',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .headlineLarge
+                                    ?.copyWith(color: Colors.white),
+                              ),
                             ),
                             const SizedBox(height: 6),
                             Text(
                               context.t(
                                 'AI disease detection and treatment guide for calamansi farmers.',
                               ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                               style: Theme.of(context)
                                   .textTheme
                                   .bodyLarge
@@ -1496,7 +2184,9 @@ class WelcomeScreen extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        context.t('Choose language'),
+                        context.t(
+                          'Choose language / Pumili ng wika / Pili og pinulongan',
+                        ),
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: 14),
@@ -1550,6 +2240,27 @@ class WelcomeScreen extends StatelessWidget {
                           }
                         },
                       ),
+                      if (!state.isSignedIn) ...[
+                        const SizedBox(height: 10),
+                        OutlineAction(
+                          label: 'Sign in or create account',
+                          icon: Icons.account_circle_outlined,
+                          onTap: () => go(context, const AuthLandingScreen()),
+                        ),
+                        const SizedBox(height: 8),
+                        Center(
+                          child: Text(
+                            context
+                                .t('You can check plants without an account.'),
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: CcColors.muted,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -1557,6 +2268,580 @@ class WelcomeScreen extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class AuthLandingScreen extends StatefulWidget {
+  const AuthLandingScreen({super.key});
+
+  @override
+  State<AuthLandingScreen> createState() => _AuthLandingScreenState();
+}
+
+class _AuthLandingScreenState extends State<AuthLandingScreen> {
+  AuthFormMode _mode = AuthFormMode.signIn;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    final isKeyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+    return ScreenFrame(
+      showNav: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TopLine(
+            title: 'Account',
+            subtitle:
+                'Sign in to sync reports and restore saved data after reinstalling.',
+            trailing: IconButton(
+              tooltip: context.t('Close'),
+              onPressed: () => Navigator.maybePop(context),
+              icon: const Icon(Icons.close_rounded),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: state.isSignedIn
+                ? SectionCard(
+                    title: 'Account connected',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          state.accountEmail,
+                          style: const TextStyle(
+                            color: CcColors.ink,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            height: 1.35,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        PrimaryButton(
+                          label: 'Sign out',
+                          icon: Icons.logout_rounded,
+                          color: CcColors.red,
+                          onPressed: () async {
+                            final confirmed =
+                                await showSignOutConfirmation(context);
+                            if (!confirmed || !context.mounted) return;
+                            await state.signOut();
+                            state.setTab(0);
+                            if (context.mounted) {
+                              replaceWith(context, const WelcomeScreen());
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  )
+                : AuthPanel(
+                    mode: _mode,
+                    onModeChanged: (mode) => setState(() => _mode = mode),
+                  ),
+          ),
+          if (!isKeyboardOpen) ...[
+            const SizedBox(height: 14),
+            const NoticeCard(
+              text:
+                  'You can still scan offline. Sign in is only needed before sending reports online.',
+            ),
+            const SizedBox(height: 14),
+            PrimaryButton(
+              label: 'Continue offline',
+              icon: Icons.eco_rounded,
+              onPressed: () => replaceWith(context, const MainShell()),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+enum AuthFormMode { signIn, create }
+
+class AuthPanel extends StatelessWidget {
+  const AuthPanel({
+    super.key,
+    required this.mode,
+    required this.onModeChanged,
+  });
+
+  final AuthFormMode mode;
+  final ValueChanged<AuthFormMode> onModeChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = AppScope.of(context);
+    if (!state.authConfigured) {
+      return const SectionCard(
+        title: 'Account',
+        child: NoticeCard(
+          text:
+              'Supabase is not configured on this build. Add env keys before using accounts.',
+        ),
+      );
+    }
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          AuthModeToggle(mode: mode, onChanged: onModeChanged),
+          const SizedBox(height: 12),
+          OutlineAction(
+            label: 'Sign in with Google',
+            icon: Icons.g_mobiledata_rounded,
+            onTap: () async {
+              try {
+                await state.signInWithGoogle();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        context.t(
+                          'Google sign-in opened. Complete it in the browser.',
+                        ),
+                      ),
+                    ),
+                  );
+                }
+              } catch (_) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        context.t(
+                          'Google sign-in is not ready yet. Check Supabase Google setup.',
+                        ),
+                      ),
+                    ),
+                  );
+                }
+              }
+            },
+          ),
+          const SizedBox(height: 12),
+          AuthFormContent(
+            mode: mode,
+            onSwitchMode: onModeChanged,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AuthModeToggle extends StatelessWidget {
+  const AuthModeToggle(
+      {super.key, required this.mode, required this.onChanged});
+
+  final AuthFormMode mode;
+  final ValueChanged<AuthFormMode> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<AuthFormMode>(
+      segments: [
+        ButtonSegment(
+          value: AuthFormMode.signIn,
+          label: Text(context.t('Sign in')),
+          icon: const Icon(Icons.login_rounded),
+        ),
+        ButtonSegment(
+          value: AuthFormMode.create,
+          label: Text(context.t('Create account')),
+          icon: const Icon(Icons.person_add_alt_1_rounded),
+        ),
+      ],
+      selected: {mode},
+      onSelectionChanged: (selection) => onChanged(selection.first),
+      showSelectedIcon: false,
+    );
+  }
+}
+
+class AuthFormScreen extends StatefulWidget {
+  const AuthFormScreen({super.key, required this.mode});
+
+  final AuthFormMode mode;
+
+  @override
+  State<AuthFormScreen> createState() => _AuthFormScreenState();
+}
+
+class AuthFormContent extends StatefulWidget {
+  const AuthFormContent({
+    super.key,
+    required this.mode,
+    this.onSwitchMode,
+  });
+
+  final AuthFormMode mode;
+  final ValueChanged<AuthFormMode>? onSwitchMode;
+
+  @override
+  State<AuthFormContent> createState() => _AuthFormContentState();
+}
+
+class _AuthFormScreenState extends State<AuthFormScreen> {
+  @override
+  Widget build(BuildContext context) {
+    final isCreate = widget.mode == AuthFormMode.create;
+    return ScreenFrame(
+      showNav: false,
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TopLine(
+              title: isCreate ? 'Create account' : 'Sign in',
+              subtitle: isCreate
+                  ? 'Use this account to restore synced reports later.'
+                  : 'Use your account to sync and restore reports.',
+              trailing: IconButton(
+                tooltip: context.t('Back'),
+                onPressed: () => Navigator.maybePop(context),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+            ),
+            const SizedBox(height: 16),
+            AuthFormContent(mode: widget.mode),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AuthFormContentState extends State<AuthFormContent> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _nameController = TextEditingController();
+  final _locationController = TextEditingController();
+  final _officeEmailController = TextEditingController();
+  bool _isSubmitting = false;
+  bool _obscurePassword = true;
+
+  bool get _isCreate => widget.mode == AuthFormMode.create;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final state = AppScope.of(context);
+    _nameController.text =
+        _nameController.text.isEmpty ? state.farmerName : _nameController.text;
+    _locationController.text = _locationController.text.isEmpty
+        ? state.farmerLocation
+        : _locationController.text;
+    _officeEmailController.text = _officeEmailController.text.isEmpty
+        ? state.officeEmail
+        : _officeEmailController.text;
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _nameController.dispose();
+    _locationController.dispose();
+    _officeEmailController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final state = AppScope.of(context);
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    if (email.isEmpty || password.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            context.t('Enter an email and a password with at least 6 letters.'),
+          ),
+        ),
+      );
+      return;
+    }
+    if (_isCreate &&
+        (_nameController.text.trim().isEmpty ||
+            _locationController.text.trim().isEmpty ||
+            _officeEmailController.text.trim().isEmpty)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            context
+                .t('Please complete name, farm location, and barangay email.'),
+          ),
+        ),
+      );
+      return;
+    }
+    setState(() => _isSubmitting = true);
+    try {
+      if (_isCreate) {
+        state.setFarmerName(_nameController.text.trim());
+        state.setFarmerLocation(_locationController.text.trim());
+        state.setEmail(_officeEmailController.text.trim());
+        await state.createAccount(email: email, password: password);
+      } else {
+        await state.signIn(email: email, password: password);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              context.t(
+                _isCreate
+                    ? (state.isSignedIn
+                        ? 'Account created and signed in.'
+                        : 'Please check your email, then sign in.')
+                    : 'Signed in successfully.',
+              ),
+            ),
+          ),
+        );
+        Navigator.maybePop(context);
+      }
+    } on AccountCreatedNeedsSignInException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(context.t('Please check your email, then sign in.')),
+          ),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              context.t(accountErrorMessage(error)),
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        SectionCard(
+          title: _isCreate ? 'Farmer account' : 'Account details',
+          child: Column(
+            children: [
+              if (_isCreate) ...[
+                AuthTextField(
+                  controller: _nameController,
+                  label: 'Farmer name',
+                  icon: Icons.person_outline,
+                ),
+                const SizedBox(height: 10),
+                AuthTextField(
+                  controller: _locationController,
+                  label: 'Farm location',
+                  icon: Icons.place_outlined,
+                  textCapitalization: TextCapitalization.words,
+                ),
+                const SizedBox(height: 10),
+                AuthTextField(
+                  controller: _officeEmailController,
+                  label: 'Barangay email',
+                  icon: Icons.mark_email_unread_outlined,
+                  keyboardType: TextInputType.emailAddress,
+                ),
+                const SizedBox(height: 10),
+              ],
+              AuthTextField(
+                controller: _emailController,
+                label: 'Email address',
+                icon: Icons.alternate_email_rounded,
+                keyboardType: TextInputType.emailAddress,
+              ),
+              const SizedBox(height: 10),
+              AuthTextField(
+                controller: _passwordController,
+                label: 'Password',
+                icon: Icons.lock_outline_rounded,
+                obscureText: _obscurePassword,
+                suffixIcon: IconButton(
+                  tooltip: context.t(
+                    _obscurePassword ? 'Show password' : 'Hide password',
+                  ),
+                  onPressed: () => setState(
+                    () => _obscurePassword = !_obscurePassword,
+                  ),
+                  icon: Icon(
+                    _obscurePassword
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                  ),
+                ),
+              ),
+              if (!_isCreate) ...[
+                const SizedBox(height: 4),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => go(context, const ForgotPasswordScreen()),
+                    child: Text(context.t('Forgot password?')),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        PrimaryButton(
+          label: _isSubmitting
+              ? (_isCreate ? 'Creating account...' : 'Signing in...')
+              : (_isCreate ? 'Create account' : 'Sign in'),
+          icon:
+              _isCreate ? Icons.person_add_alt_1_rounded : Icons.login_rounded,
+          isLoading: _isSubmitting,
+          onPressed: _isSubmitting ? null : _submit,
+        ),
+        const SizedBox(height: 8),
+        TextButton(
+          onPressed: widget.onSwitchMode == null
+              ? null
+              : () => widget.onSwitchMode!(
+                    _isCreate ? AuthFormMode.signIn : AuthFormMode.create,
+                  ),
+          child: Text(
+            context.t(
+              _isCreate
+                  ? 'Already have an account? Sign in'
+                  : 'New here? Create account',
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class ForgotPasswordScreen extends StatefulWidget {
+  const ForgotPasswordScreen({super.key});
+
+  @override
+  State<ForgotPasswordScreen> createState() => _ForgotPasswordScreenState();
+}
+
+class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
+  final _emailController = TextEditingController();
+  bool _isSending = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty) return;
+    setState(() => _isSending = true);
+    try {
+      await AppScope.of(context).sendPasswordReset(email);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(context.t('Password reset email sent.')),
+          ),
+        );
+        Navigator.maybePop(context);
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(context.t('Could not send reset email. Try again.')),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ScreenFrame(
+      showNav: false,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TopLine(
+            title: 'Forgot password',
+            subtitle: 'Enter your email to receive a reset link.',
+            trailing: IconButton(
+              tooltip: context.t('Back'),
+              onPressed: () => Navigator.maybePop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+          ),
+          const SizedBox(height: 16),
+          SectionCard(
+            title: 'Email address',
+            child: AuthTextField(
+              controller: _emailController,
+              label: 'Email address',
+              icon: Icons.alternate_email_rounded,
+              keyboardType: TextInputType.emailAddress,
+            ),
+          ),
+          const Spacer(),
+          PrimaryButton(
+            label: _isSending ? 'Sending email...' : 'Send reset email',
+            icon: Icons.mark_email_read_outlined,
+            isLoading: _isSending,
+            onPressed: _isSending ? null : _send,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AuthTextField extends StatelessWidget {
+  const AuthTextField({
+    super.key,
+    required this.controller,
+    required this.label,
+    required this.icon,
+    this.keyboardType,
+    this.obscureText = false,
+    this.suffixIcon,
+    this.textCapitalization = TextCapitalization.none,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final IconData icon;
+  final TextInputType? keyboardType;
+  final bool obscureText;
+  final Widget? suffixIcon;
+  final TextCapitalization textCapitalization;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      obscureText: obscureText,
+      textCapitalization: textCapitalization,
+      decoration: InputDecoration(
+        labelText: context.t(label),
+        prefixIcon: Icon(icon),
+        suffixIcon: suffixIcon,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
       ),
     );
   }
@@ -1640,6 +2925,10 @@ class HomeScreen extends StatelessWidget {
                     child: StatCard(
                       value: '${state.checksCount}',
                       label: 'Checks',
+                      onTap: () => showFieldSummaryOverlay(
+                        context,
+                        FieldSummaryKind.checks,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -1648,6 +2937,10 @@ class HomeScreen extends StatelessWidget {
                       value: '${state.queuedReportsCount}',
                       label: 'Queued',
                       valueColor: CcColors.orange,
+                      onTap: () => showFieldSummaryOverlay(
+                        context,
+                        FieldSummaryKind.queued,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -1655,6 +2948,10 @@ class HomeScreen extends StatelessWidget {
                     child: StatCard(
                       value: '${state.sentReportsCount}',
                       label: 'Sent',
+                      onTap: () => showFieldSummaryOverlay(
+                        context,
+                        FieldSummaryKind.sent,
+                      ),
                     ),
                   ),
                 ],
@@ -1666,7 +2963,14 @@ class HomeScreen extends StatelessWidget {
               child: Wrap(
                 spacing: 8,
                 runSpacing: 8,
-                children: diseaseLabels.map((item) => SmallPill(item)).toList(),
+                children: diseaseLabels
+                    .map(
+                      (item) => SmallPill(
+                        item,
+                        onTap: () => showDiseaseInfoOverlay(context, item),
+                      ),
+                    )
+                    .toList(),
               ),
             ),
             const SizedBox(height: 18),
@@ -1683,6 +2987,223 @@ class HomeScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+enum FieldSummaryKind { checks, queued, sent }
+
+String _fieldSummaryTitle(FieldSummaryKind kind) {
+  return switch (kind) {
+    FieldSummaryKind.checks => 'Checks details',
+    FieldSummaryKind.queued => 'Queued reports',
+    FieldSummaryKind.sent => 'Sent reports',
+  };
+}
+
+String _fieldSummaryEmptyText(FieldSummaryKind kind) {
+  return switch (kind) {
+    FieldSummaryKind.checks => 'No checks yet.',
+    FieldSummaryKind.queued => 'No reports waiting.',
+    FieldSummaryKind.sent => 'No sent reports yet.',
+  };
+}
+
+bool _matchesFieldSummaryKind(
+  FieldSummaryKind kind,
+  Map<String, Object?> row,
+) {
+  final status = row['report_status'];
+  return switch (kind) {
+    FieldSummaryKind.checks => true,
+    FieldSummaryKind.queued => status == reportStatusWaitingInternet ||
+        status == reportStatusSyncing ||
+        status == reportStatusFailedRetry,
+    FieldSummaryKind.sent => status == reportStatusSynced,
+  };
+}
+
+void showFieldSummaryOverlay(BuildContext context, FieldSummaryKind kind) {
+  showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return Dialog(
+        insetPadding: const EdgeInsets.all(20),
+        backgroundColor: CcColors.bgAlt,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 430, maxHeight: 620),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: FutureBuilder<List<Map<String, Object?>>>(
+              future: DiagnosisRepository.instance.getRecentDiagnoses(),
+              builder: (context, snapshot) {
+                final rows = (snapshot.data ?? const <Map<String, Object?>>[])
+                    .where((row) => _matchesFieldSummaryKind(kind, row))
+                    .toList();
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            context.t(_fieldSummaryTitle(kind)),
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: context.t('Close'),
+                          onPressed: () => Navigator.pop(dialogContext),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (snapshot.connectionState == ConnectionState.waiting)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 28),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (rows.isEmpty)
+                      NoticeCard(text: _fieldSummaryEmptyText(kind))
+                    else
+                      Flexible(
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: rows.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            return FieldSummaryDetailTile(
+                              row: rows[index],
+                              kind: kind,
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class FieldSummaryDetailTile extends StatelessWidget {
+  const FieldSummaryDetailTile({
+    super.key,
+    required this.row,
+    required this.kind,
+  });
+
+  final Map<String, Object?> row;
+  final FieldSummaryKind kind;
+
+  @override
+  Widget build(BuildContext context) {
+    final disease = '${row['disease'] ?? 'Unknown'}';
+    final confidence = ((row['confidence'] as num?)?.toDouble() ?? 0) * 100;
+    final createdAt = '${row['created_at'] ?? ''}';
+    final queuedAt = row['report_created_at'] as String?;
+    final syncedAt = row['report_synced_at'] as String?;
+    final reportEmail = row['report_email'] as String?;
+    final status = _reportStatusLabel(row['report_status'] as String?);
+    final dateLabel = switch (kind) {
+      FieldSummaryKind.checks => 'Scan date',
+      FieldSummaryKind.queued => 'Report date',
+      FieldSummaryKind.sent => 'Sent',
+    };
+    final dateValue = switch (kind) {
+      FieldSummaryKind.checks =>
+        createdAt.isEmpty ? '---' : _formatHistoryDateTime(createdAt),
+      FieldSummaryKind.queued =>
+        queuedAt == null ? '---' : _formatHistoryDateTime(queuedAt),
+      FieldSummaryKind.sent =>
+        syncedAt == null ? '---' : _formatHistoryDateTime(syncedAt),
+    };
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: CcColors.card,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: CcColors.line),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            context.t(disease),
+            style: const TextStyle(
+              color: CcColors.ink,
+              fontWeight: FontWeight.w900,
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 8),
+          InfoRow(
+            label: 'Confidence',
+            value: '${confidence.toStringAsFixed(0)}%',
+          ),
+          InfoRow(label: 'Status', value: status),
+          if (kind != FieldSummaryKind.checks)
+            InfoRow(label: 'Target email', value: reportEmail ?? '---'),
+          InfoRow(label: dateLabel, value: dateValue),
+        ],
+      ),
+    );
+  }
+}
+
+void showDiseaseInfoOverlay(BuildContext context, String disease) {
+  showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return Dialog(
+        insetPadding: const EdgeInsets.all(20),
+        backgroundColor: CcColors.bgAlt,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 430, maxHeight: 650),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        context.t(disease),
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: context.t('Close'),
+                      onPressed: () => Navigator.pop(dialogContext),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                GuideTile(
+                  icon: Icons.info_outline_rounded,
+                  title: 'Description',
+                  text: diseaseDescriptionFor(disease),
+                ),
+                const SizedBox(height: 4),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
 }
 
 class CaptureScreen extends StatelessWidget {
@@ -1796,10 +3317,9 @@ class _CheckingScreenState extends State<CheckingScreen> {
       final prediction =
           await DiseaseClassifier.instance.classify(bytes, diseaseLabels);
 
-      if (confidenceTier(prediction.confidence) == ConfidenceTier.rejected) {
-        // Below the 50% floor: don't save this as a diagnosis and don't let
-        // a wild guess (e.g. a photo of anything but a leaf) reach the
-        // farmer looking like a real result.
+      if (confidenceTier(prediction.confidence) != ConfidenceTier.accepted) {
+        // Below the report confidence threshold: don't save this as a
+        // diagnosis, so unclear scans do not appear in History.
         if (mounted) {
           setState(() {
             _error = lowConfidenceRejectionMessage;
@@ -1973,7 +3493,6 @@ class DiagnosisScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final shouldRetakePhoto =
         prediction.confidence < reportAcceptanceConfidenceThreshold;
-    final guidance = guidanceFor(prediction.label);
     return ScreenFrame(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2077,8 +3596,6 @@ class DiagnosisScreen extends StatelessWidget {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  TreatmentRecommendationCard(guidance: guidance),
                 ],
               ],
             ),
@@ -2191,9 +3708,14 @@ class TreatmentScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const TopLine(
+          TopLine(
             title: 'Treatment guide',
             subtitle: 'Prioritize containment and expert confirmation.',
+            trailing: IconButton(
+              tooltip: context.t('Back'),
+              onPressed: () => Navigator.maybePop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
           ),
           const SizedBox(height: 16),
           PriorityCard(message: guidance.recommendation),
@@ -2274,9 +3796,14 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const TopLine(
+          TopLine(
             title: 'Report preview',
             subtitle: 'Prepared for barangay agriculture review.',
+            trailing: IconButton(
+              tooltip: context.t('Back'),
+              onPressed: () => Navigator.maybePop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
           ),
           const SizedBox(height: 16),
           SectionCard(
@@ -2286,13 +3813,13 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                 InfoRow(
                   label: 'Farmer',
                   value: state.farmerName.trim().isEmpty
-                      ? 'Tap to add'
+                      ? '---'
                       : state.farmerName,
                 ),
                 InfoRow(
                   label: 'Location',
                   value: state.farmerLocation.trim().isEmpty
-                      ? 'Tap to add'
+                      ? '---'
                       : state.farmerLocation,
                 ),
                 const InfoRow(label: 'Plant part', value: 'Leaf'),
@@ -2307,11 +3834,16 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                 InfoRow(
                   label: 'Email',
                   value: state.officeEmail.trim().isEmpty
-                      ? 'Tap to add'
+                      ? '---'
                       : state.officeEmail,
                 ),
               ],
             ),
+          ),
+          const SizedBox(height: 12),
+          const NoticeCard(
+            text:
+                'Shared to barangay: name, location, diagnosis, and photo. Shared to other farmers: diagnosis, photo, and general area only.',
           ),
           const SizedBox(height: 12),
           Container(
@@ -2348,10 +3880,12 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
           PrimaryButton(
             label: isSubmitting ? 'Sending report...' : 'Report',
             icon: Icons.outbox_rounded,
-            color: CcColors.orange,
+            color: CcColors.hero,
             isLoading: isSubmitting,
             onPressed: state.consentEnabled && !isSubmitting
                 ? () async {
+                    final isSignedIn = await ensureAccountReady(context);
+                    if (!isSignedIn || !context.mounted) return;
                     final canSend = await ensureReportProfileComplete(context);
                     if (!canSend || !context.mounted) return;
                     setState(() => isSubmitting = true);
@@ -2365,17 +3899,20 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                       await state.checkConnectivityAndSync();
                       if (context.mounted) {
                         final sentNow = state.queuedReportsCount == 0;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              context.t(
-                                sentNow
-                                    ? 'Report saved. Sending to barangay now.'
-                                    : 'Report is pending and waiting for internet connection.',
+                        if (sentNow) {
+                          await showReportSentDialog(context);
+                        } else if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                context.t(
+                                  'Report is pending and waiting for internet connection.',
+                                ),
                               ),
                             ),
-                          ),
-                        );
+                          );
+                        }
+                        if (!context.mounted) return;
                         go(context, const OfflineQueueScreen());
                       }
                     } finally {
@@ -2393,16 +3930,30 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
 Future<bool> ensureReportProfileComplete(BuildContext context) async {
   final state = AppScope.of(context);
   if (state.hasCompleteReportProfile) return true;
+  final missingFields = state.missingReportProfileFields;
 
   final editSettings = await showDialog<bool>(
     context: context,
     builder: (dialogContext) {
       return AlertDialog(
         title: Text(context.t('Complete farmer information first')),
-        content: Text(
-          context.t(
-            'Please add farmer name, farm location, and barangay email before sending a report.',
-          ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              context.t('Please complete this information before sending:'),
+            ),
+            const SizedBox(height: 10),
+            for (final field in missingFields)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  '- ${context.t(field)}',
+                  style: const TextStyle(fontWeight: FontWeight.w800),
+                ),
+              ),
+          ],
         ),
         actions: [
           TextButton(
@@ -2423,6 +3974,60 @@ Future<bool> ensureReportProfileComplete(BuildContext context) async {
     replaceWith(context, const MainShell());
   }
   return false;
+}
+
+Future<bool> ensureAccountReady(BuildContext context) async {
+  final state = AppScope.of(context);
+  await state.refreshAuthState();
+  if (!context.mounted) return false;
+  if (state.isSignedIn) return true;
+
+  final openAuth = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: Text(context.t('Sign in to send this report')),
+        content: Text(
+          context.t(
+            'Your scan is already saved on your phone. Sign in when you are ready to send it online.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(context.t('Not now, keep it on my phone')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(context.t('Sign in')),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (openAuth == true && context.mounted) {
+    go(context, const AuthLandingScreen());
+  }
+  return false;
+}
+
+Future<void> showReportSentDialog(BuildContext context) {
+  return showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: Text(context.t('Report sent')),
+        content: Text(context.t('Your report was sent to the barangay.')),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text(context.t('OK')),
+          ),
+        ],
+      );
+    },
+  );
 }
 
 Future<bool> ensureTermsAgreementAccepted(BuildContext context) async {
@@ -2544,6 +4149,91 @@ class TermsAgreementPoint extends StatelessWidget {
   }
 }
 
+void showAboutAppDialog(BuildContext context) {
+  showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      return Dialog(
+        insetPadding: const EdgeInsets.all(20),
+        backgroundColor: CcColors.bgAlt,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 430, maxHeight: 680),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        context.t('About CalamansiCare'),
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: context.t('Close'),
+                      onPressed: () => Navigator.pop(dialogContext),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Flexible(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        TermsAgreementPoint(
+                          title: 'About CalamansiCare',
+                          body:
+                              'CalamansiCare helps farmers check calamansi leaves and fruits using an offline AI model, view simple disease information, save scan history on the phone, and prepare reports for the barangay agriculture office.',
+                        ),
+                        TermsAgreementPoint(
+                          title: 'Treatment recommendation',
+                          body:
+                              'The treatment and recommendation content is based on expert-verified guidance for calamansi disease management and should be used as support for farmer decisions.',
+                        ),
+                        TermsAgreementPoint(
+                          title: 'Important reminder',
+                          body:
+                              'For serious or spreading symptoms, farmers should still confirm findings with the local agriculture office before removing trees or applying chemical treatment.',
+                        ),
+                        TermsAgreementPoint(
+                          title: 'What we collect',
+                          body:
+                              'Device signature, model, Android version, farmer name, farm location, barangay email, diagnosis result, confidence score, report date, and report image when you send a report.',
+                        ),
+                        TermsAgreementPoint(
+                          title: 'How we use it',
+                          body:
+                              'This information is used to save reports offline, avoid duplicate uploads, send reports to the barangay office, and show community disease alerts.',
+                        ),
+                        TermsAgreementPoint(
+                          title: 'Offline and online storage',
+                          body:
+                              'Reports are saved locally on this phone first. When internet is available, approved reports are uploaded to Supabase and may be emailed to the target barangay email.',
+                        ),
+                        TermsAgreementPoint(
+                          title: 'Farmer responsibility',
+                          body:
+                              'The app gives guidance only. Confirm serious disease findings with the local agriculture office before applying treatment.',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
 class OfflineQueueScreen extends StatefulWidget {
   const OfflineQueueScreen({super.key});
 
@@ -2553,78 +4243,175 @@ class OfflineQueueScreen extends StatefulWidget {
 
 class _OfflineQueueScreenState extends State<OfflineQueueScreen> {
   bool isSyncing = false;
+  late Future<Map<String, Object?>?> _summaryFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _summaryFuture = DiagnosisRepository.instance.getLatestReportSummary();
+  }
+
+  void _refreshSummary() {
+    setState(() {
+      _summaryFuture = DiagnosisRepository.instance.getLatestReportSummary();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
-    final statusLabel = state.queuedReportsCount == 0
-        ? 'Sent'
-        : state.isOnline
-            ? 'Ready to send when online'
-            : 'Waiting for internet connection';
     return ScreenFrame(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          TopLine(
-            title: 'Offline queue',
-            subtitle: 'Reports wait here until internet is available.',
-            pill: state.readinessLabel,
-          ),
-          const SizedBox(height: 16),
-          SectionCard(
-            title: 'HLB / Greening report',
-            child: Column(
-              children: [
-                InfoRow(
-                  label: 'Status',
-                  value: statusLabel,
+      child: FutureBuilder<Map<String, Object?>?>(
+        future: _summaryFuture,
+        builder: (context, snapshot) {
+          final summary = snapshot.data;
+          final imagePath = summary?['image_path'] as String?;
+          final disease = '${summary?['disease'] ?? '---'}';
+          final statusLabel = _reportStatusLabel(summary?['status'] as String?);
+          final confidence =
+              ((summary?['confidence'] as num?)?.toDouble() ?? 0) * 100;
+          final farmerName = _summaryValue(summary?['farmer_name']);
+          final farmerLocation = _summaryValue(summary?['farmer_location']);
+          final targetEmail = _summaryValue(summary?['office_email']);
+          final scanDate = _summaryDate(summary?['scan_created_at']);
+          final reportDate = _summaryDate(summary?['report_created_at']);
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TopLine(
+                title: 'Report Summary',
+                subtitle: 'Details of the latest reported scan.',
+                pill: state.readinessLabel,
+              ),
+              const SizedBox(height: 16),
+              if (snapshot.connectionState == ConnectionState.waiting)
+                const Expanded(
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (summary == null) ...[
+                const NoticeCard(text: 'No reported scans yet.'),
+                const Spacer(),
+              ] else ...[
+                SectionCard(
+                  title: 'Reported scan',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ReportSummaryImage(imagePath: imagePath),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              children: [
+                                InfoRow(label: 'Diagnosis', value: disease),
+                                InfoRow(
+                                  label: 'Confidence',
+                                  value: '${confidence.toStringAsFixed(0)}%',
+                                ),
+                                InfoRow(label: 'Status', value: statusLabel),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      InfoRow(label: 'Farmer', value: farmerName),
+                      InfoRow(label: 'Location', value: farmerLocation),
+                      InfoRow(label: 'Target email', value: targetEmail),
+                      InfoRow(label: 'Scan date', value: scanDate),
+                      InfoRow(label: 'Report date', value: reportDate),
+                      const InfoRow(label: 'Saved in', value: 'This phone'),
+                    ],
+                  ),
                 ),
-                const InfoRow(
-                  label: 'Saved in',
-                  value: 'This phone',
+                const SizedBox(height: 12),
+                NoticeCard(
+                  text: state.queuedReportsCount == 0
+                      ? 'No reports waiting to send'
+                      : 'Reports will send automatically when internet is available.',
                 ),
-                InfoRow(label: 'Target email', value: state.officeEmail),
+                const Spacer(),
+                if (state.queuedReportsCount > 0) ...[
+                  OutlineAction(
+                    label: isSyncing ? 'Sending now...' : 'Try sending now',
+                    icon: Icons.wifi_rounded,
+                    isLoading: isSyncing,
+                    onTap: isSyncing
+                        ? null
+                        : () async {
+                            setState(() => isSyncing = true);
+                            final before = state.queuedReportsCount;
+                            await state.checkConnectivityAndSync();
+                            if (mounted) setState(() => isSyncing = false);
+                            _refreshSummary();
+                            if (!context.mounted) return;
+                            final sent =
+                                before > 0 && state.queuedReportsCount == 0;
+                            final message = sent
+                                ? 'Report sent successfully.'
+                                : 'Report is still waiting. Please connect to the internet and try again.';
+                            if (sent) {
+                              await showReportSentDialog(context);
+                            } else if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(context.t(message))),
+                              );
+                            }
+                          },
+                  ),
+                  const SizedBox(height: 10),
+                ],
               ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          NoticeCard(
-            text: state.queuedReportsCount == 0
-                ? 'No reports waiting to send'
-                : 'Reports will send automatically when internet is available.',
-          ),
-          const Spacer(),
-          if (state.queuedReportsCount > 0) ...[
-            OutlineAction(
-              label: isSyncing ? 'Sending now...' : 'Try sending now',
-              icon: Icons.wifi_rounded,
-              isLoading: isSyncing,
-              onTap: isSyncing
-                  ? null
-                  : () async {
-                      setState(() => isSyncing = true);
-                      final before = state.queuedReportsCount;
-                      await state.checkConnectivityAndSync();
-                      if (mounted) setState(() => isSyncing = false);
-                      if (!context.mounted) return;
-                      final sent = before > 0 && state.queuedReportsCount == 0;
-                      final message = sent
-                          ? 'Report sent successfully.'
-                          : 'Report is still waiting. Please connect to the internet and try again.';
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(context.t(message))),
-                      );
-                    },
-            ),
-            const SizedBox(height: 10),
-          ],
-          PrimaryButton(
-            label: 'Back to home',
-            icon: Icons.home_rounded,
-            onPressed: () => replaceWith(context, const MainShell()),
-          ),
-        ],
+              PrimaryButton(
+                label: 'Back to home',
+                icon: Icons.home_rounded,
+                onPressed: () => replaceWith(context, const MainShell()),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+String _summaryValue(Object? value) {
+  final text = '$value'.trim();
+  return text.isEmpty || text == 'null' ? '---' : text;
+}
+
+String _summaryDate(Object? value) {
+  final text = '$value'.trim();
+  return text.isEmpty || text == 'null' ? '---' : _formatHistoryDateTime(text);
+}
+
+class ReportSummaryImage extends StatelessWidget {
+  const ReportSummaryImage({super.key, required this.imagePath});
+
+  final String? imagePath;
+
+  @override
+  Widget build(BuildContext context) {
+    final path = imagePath?.trim();
+    final hasImage = path != null && path.isNotEmpty && File(path).existsSync();
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        width: 86,
+        height: 86,
+        color: CcColors.softStrong,
+        child: hasImage
+            ? Image.file(
+                File(path),
+                fit: BoxFit.cover,
+              )
+            : const Icon(
+                Icons.image_not_supported_outlined,
+                color: CcColors.muted,
+              ),
       ),
     );
   }
@@ -2682,6 +4469,29 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       date: _formatHistoryDate(row['created_at'] as String),
                       confidence:
                           '${(((row['confidence'] as num).toDouble()) * 100).toStringAsFixed(0)}%',
+                      onRetry: _canRetryHistoryReport(row)
+                          ? () async {
+                              final diagnosisId = row['id'] as int?;
+                              if (diagnosisId == null) return;
+                              final state = AppScope.of(context);
+                              await DiagnosisRepository.instance
+                                  .markDiagnosisReportForRetry(diagnosisId);
+                              await state.checkConnectivityAndSync();
+                              await state.refreshStats();
+                              if (!mounted) return;
+                              setState(() {
+                                _future = DiagnosisRepository.instance
+                                    .getRecentDiagnoses();
+                              });
+                              if (!context.mounted) return;
+                              final message = state.queuedReportsCount == 0
+                                  ? 'Report sent successfully.'
+                                  : 'No internet. Your report is saved and will send later.';
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(context.t(message))),
+                              );
+                            }
+                          : null,
                       onTap: () => showHistoryDetailSheet(
                         context,
                         row,
@@ -2996,6 +4806,48 @@ Future<bool> showDeleteHistoryConfirmation(
   return confirmed ?? false;
 }
 
+Future<bool> showSignOutConfirmation(BuildContext context) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: Text(context.t('Sign out?')),
+        content: Text(
+          context.t(
+            'When you log out, this account\'s saved data on this phone will be deleted. Reports already sent online will stay in Barangay Reports.',
+          ),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: CcColors.softStrong,
+                    foregroundColor: CcColors.dark,
+                  ),
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: Text(context.t('Stay signed in')),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: FilledButton(
+                  style: FilledButton.styleFrom(backgroundColor: CcColors.red),
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: Text(context.t('Sign out')),
+                ),
+              ),
+            ],
+          ),
+        ],
+      );
+    },
+  );
+  return confirmed ?? false;
+}
+
 void showHistoryImageDialog(BuildContext context, String imagePath) {
   showDialog<void>(
     context: context,
@@ -3065,16 +4917,22 @@ void showHistoryImageDialog(BuildContext context, String imagePath) {
 String _reportStatusLabel(String? status) {
   switch (status) {
     case reportStatusSynced:
-      return 'Sent';
+      return 'Sent to barangay';
     case reportStatusWaitingInternet:
-      return 'Waiting for internet connection';
+      return 'Waiting for internet';
     case reportStatusSyncing:
-      return 'Sending report...';
+      return 'Sending...';
     case reportStatusFailedRetry:
-      return 'Saved locally, will retry';
+      return 'Could not send. Tap to try again';
     default:
-      return 'Not reported';
+      return 'Saved on phone';
   }
+}
+
+bool _canRetryHistoryReport(Map<String, Object?> row) {
+  return row['id'] != null &&
+      (row['report_status'] == reportStatusWaitingInternet ||
+          row['report_status'] == reportStatusFailedRetry);
 }
 
 String _formatHistoryDate(String isoTimestamp) {
@@ -3124,6 +4982,41 @@ class SettingsScreen extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             SectionCard(
+              title: 'Account',
+              child: Column(
+                children: [
+                  SettingTile(
+                    icon: Icons.account_circle_outlined,
+                    title: state.isSignedIn ? 'Signed in' : 'Account',
+                    value: state.isSignedIn
+                        ? state.accountEmail
+                        : 'Sign in to restore reports',
+                    action: state.isSignedIn ? 'View' : 'Edit',
+                    onTap: () => go(context, const AuthLandingScreen()),
+                  ),
+                  if (state.isSignedIn) ...[
+                    const SizedBox(height: 10),
+                    PrimaryButton(
+                      label: 'Sign out',
+                      icon: Icons.logout_rounded,
+                      color: CcColors.red,
+                      onPressed: () async {
+                        final confirmed =
+                            await showSignOutConfirmation(context);
+                        if (!confirmed || !context.mounted) return;
+                        await state.signOut();
+                        state.setTab(0);
+                        if (context.mounted) {
+                          replaceWith(context, const WelcomeScreen());
+                        }
+                      },
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            SectionCard(
               title: 'Farmer profile',
               child: Column(
                 children: [
@@ -3144,24 +5037,6 @@ class SettingsScreen extends StatelessWidget {
                         : state.farmerLocation,
                     action: 'Edit',
                     onTap: () => showLocationSheet(context),
-                  ),
-                  SettingTile(
-                    icon: Icons.phone_android_rounded,
-                    title: 'Device signature',
-                    value: state.deviceSignature,
-                    action: 'View',
-                  ),
-                  const SizedBox(height: 2),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      context.t(state.locationNote),
-                      style: const TextStyle(
-                        color: CcColors.muted,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
                   ),
                 ],
               ),
@@ -3210,6 +5085,18 @@ class SettingsScreen extends StatelessWidget {
                   value: state.consentEnabled,
                   onChanged: state.setConsent,
                 ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            SectionCard(
+              title: 'About CalamansiCare',
+              child: OutlineAction(
+                label: 'Read app details and terms of agreement.',
+                icon: Icons.info_outline_rounded,
+                backgroundColor: CcColors.soft,
+                foregroundColor: CcColors.green,
+                borderColor: CcColors.green,
+                onTap: () => showAboutAppDialog(context),
               ),
             ),
           ],
@@ -3424,14 +5311,16 @@ class BarangayReportDetailScreen extends StatelessWidget {
                           value:
                               '${(report.confidence * 100).toStringAsFixed(0)}%',
                         ),
+                        InfoRow(
+                          label: 'Farmer',
+                          value: report.farmerName.trim().isEmpty
+                              ? '---'
+                              : report.farmerName,
+                        ),
                         InfoRow(label: 'Location', value: report.location),
                         InfoRow(
                           label: 'Status',
                           value: communityRiskLabel(report),
-                        ),
-                        InfoRow(
-                          label: 'Device signature',
-                          value: report.deviceSignature,
                         ),
                       ],
                     ),
@@ -4044,12 +5933,18 @@ class OutlineAction extends StatelessWidget {
     required this.icon,
     required this.onTap,
     this.isLoading = false,
+    this.backgroundColor = Colors.white,
+    this.foregroundColor = CcColors.dark,
+    this.borderColor = CcColors.line,
   });
 
   final String label;
   final IconData icon;
   final VoidCallback? onTap;
   final bool isLoading;
+  final Color backgroundColor;
+  final Color foregroundColor;
+  final Color borderColor;
 
   @override
   Widget build(BuildContext context) {
@@ -4059,9 +5954,9 @@ class OutlineAction extends StatelessWidget {
       child: OutlinedButton(
         onPressed: onTap,
         style: OutlinedButton.styleFrom(
-          foregroundColor: CcColors.dark,
-          backgroundColor: Colors.white,
-          side: const BorderSide(color: CcColors.line),
+          foregroundColor: foregroundColor,
+          backgroundColor: backgroundColor,
+          side: BorderSide(color: borderColor),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
@@ -4075,13 +5970,13 @@ class OutlineAction extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const SizedBox(
+                    SizedBox(
                       width: 18,
                       height: 18,
                       child: CircularProgressIndicator(
                         strokeWidth: 2.4,
                         valueColor:
-                            AlwaysStoppedAnimation<Color>(CcColors.green),
+                            AlwaysStoppedAnimation<Color>(foregroundColor),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -4112,63 +6007,475 @@ class StatCard extends StatelessWidget {
     required this.value,
     required this.label,
     this.valueColor = CcColors.green,
+    this.onTap,
   });
 
   final String value;
   final String label;
   final Color valueColor;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: CcColors.card,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: CcColors.line),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            value,
-            style: Theme.of(context)
-                .textTheme
-                .headlineMedium
-                ?.copyWith(color: valueColor, fontSize: 20),
+        child: Ink(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: CcColors.card,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: CcColors.line),
           ),
-          const SizedBox(height: 4),
-          Text(context.t(label)),
-        ],
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                value,
+                style: Theme.of(context)
+                    .textTheme
+                    .headlineMedium
+                    ?.copyWith(color: valueColor, fontSize: 20),
+              ),
+              const SizedBox(height: 4),
+              Text(context.t(label)),
+            ],
+          ),
+        ),
       ),
     );
   }
 }
 
 class SmallPill extends StatelessWidget {
-  const SmallPill(this.text, {super.key, this.color = CcColors.green});
+  const SmallPill(this.text,
+      {super.key, this.color = CcColors.green, this.onTap});
 
   final String text;
   final Color color;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    final content = Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
       decoration: BoxDecoration(
         color: color.withValues(alpha: .12),
         borderRadius: BorderRadius.circular(99),
       ),
-      child: Text(
-        context.t(text),
-        style: TextStyle(
-          color: color,
-          fontWeight: FontWeight.w900,
-          fontSize: 10,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            context.t(text),
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w900,
+              fontSize: 10,
+            ),
+          ),
+          if (onTap != null) ...[
+            const SizedBox(width: 5),
+            Icon(Icons.info_outline_rounded, color: color, size: 12),
+          ],
+        ],
+      ),
+    );
+    if (onTap == null) return content;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(99),
+        child: content,
       ),
     );
   }
+}
+
+class DiseaseTranslations {
+  static const Map<String, Map<String, String>> descriptions = {
+    'The fruit looks normal, with no clear disease marks. Keep checking often so problems can be found early.':
+        {
+      AppText.tagalog:
+          'Mukhang normal ang bunga at walang malinaw na marka ng sakit. Patuloy na mag-check para maagapan ang problema.',
+      AppText.cebuano:
+          'Normal tan-awon ang bunga ug walay klarong marka sa sakit. Padayon nga mag-check aron maagapan ang problema.',
+    },
+    'The leaf looks healthy, with no clear disease signs. Continue regular watering, nutrition, and farm sanitation.':
+        {
+      AppText.tagalog:
+          'Mukhang malusog ang dahon at walang malinaw na senyales ng sakit. Ipagpatuloy ang tamang dilig, nutrisyon, at kalinisan sa taniman.',
+      AppText.cebuano:
+          'Himsog tan-awon ang dahon ug walay klarong timailhan sa sakit. Padayon ang sakto nga pagbisbis, nutrisyon, ug kalimpyo sa uma.',
+    },
+    'A serious bacterial disease that can cause uneven yellow leaves, weak growth, and poor fruit quality. It can spread through infected planting material and citrus psyllids.':
+        {
+      AppText.tagalog:
+          'Seryosong bacterial disease na maaaring magdulot ng hindi pantay na paninilaw ng dahon, mahinang paglaki, at mababang kalidad ng bunga. Kumakalat ito sa infected na pananim at citrus psyllids.',
+      AppText.cebuano:
+          'Seryosong bacterial disease nga mahimong makapahinungdan sa dili patas nga pag-yellow sa dahon, hinay nga pagtubo, ug bati nga kalidad sa bunga. Mokaylap kini pinaagi sa infected nga tanom ug citrus psyllids.',
+    },
+    'A bacterial disease that often creates raised corky spots on leaves, stems, or fruit. It spreads easily through wind-driven rain and infected plant material.':
+        {
+      AppText.tagalog:
+          'Bacterial disease na madalas gumawa ng nakaangat at magaspang na batik sa dahon, sanga, o bunga. Madali itong kumalat sa ulan na tinatangay ng hangin at infected na bahagi ng halaman.',
+      AppText.cebuano:
+          'Bacterial disease nga kasagarang naghimo ug baga ug rough nga lama sa dahon, sanga, o bunga. Dali kini mokaylap sa ulan nga dala sa hangin ug infected nga bahin sa tanom.',
+    },
+    'A fungal disease that can cause dark sunken spots, twig dieback, and fruit damage, especially during wet or stressful conditions.':
+        {
+      AppText.tagalog:
+          'Fungal disease na maaaring magdulot ng maitim at lubog na batik, pagkamatay ng maliliit na sanga, at sira sa bunga lalo na kapag basa o stressed ang puno.',
+      AppText.cebuano:
+          'Fungal disease nga mahimong makahatag ug itom nga lubog nga lama, pagkamatay sa gagmay nga sanga, ug kadaot sa bunga labi na kung basa o stressed ang kahoy.',
+    },
+    'A fungal disease linked to dead twigs and old infected wood. It can leave rough dark specks or streaks on fruit and leaves.':
+        {
+      AppText.tagalog:
+          'Fungal disease na kaugnay ng patay na maliliit na sanga at lumang infected na kahoy. Maaari itong mag-iwan ng magaspang na maiitim na tuldok o guhit sa bunga at dahon.',
+      AppText.cebuano:
+          'Fungal disease nga konektado sa patay nga gagmay nga sanga ug daang infected nga kahoy. Makabiya kini ug rough nga itom nga tuldok o linya sa bunga ug dahon.',
+    },
+    'A fungal disease that can make rough raised scab marks on young leaves and fruit. It is common when new growth stays wet.':
+        {
+      AppText.tagalog:
+          'Fungal disease na maaaring gumawa ng magaspang at nakaangat na scab marks sa batang dahon at bunga. Karaniwan ito kapag matagal na basa ang bagong tubo.',
+      AppText.cebuano:
+          'Fungal disease nga makahimo ug rough ug baga nga scab marks sa batan-ong dahon ug bunga. Kasagaran kini kung dugay mabasa ang bag-ong tubo.',
+    },
+    'A fungal disease that can cause brown leaf spots, fruit spots, and leaf drop. Wet weather and dense canopies can make it worse.':
+        {
+      AppText.tagalog:
+          'Fungal disease na maaaring magdulot ng brown spots sa dahon at bunga, at paglagas ng dahon. Mas lumalala ito kapag basa ang panahon at siksik ang canopy.',
+      AppText.cebuano:
+          'Fungal disease nga mahimong makahatag ug brown spots sa dahon ug bunga, ug pagkalagas sa dahon. Mas mograbe kini kung basa ang panahon ug dasok ang canopy.',
+    },
+    'A nutrition problem, not an infection. Leaves may yellow or look weak when the tree lacks nutrients, has root stress, or has soil problems.':
+        {
+      AppText.tagalog:
+          'Problema sa nutrisyon ito, hindi impeksyon. Maaaring manilaw o manghina ang dahon kapag kulang sa sustansya, stressed ang ugat, o may problema ang lupa.',
+      AppText.cebuano:
+          'Problema kini sa nutrisyon, dili impeksyon. Mahimong mo-yellow o maluya ang dahon kung kulang sa sustansya, stressed ang gamot, o naay problema sa yuta.',
+    },
+    'The condition needs a clearer photo or field checking before making a treatment decision.':
+        {
+      AppText.tagalog:
+          'Kailangan ng mas malinaw na larawan o field checking bago magdesisyon sa paggamot.',
+      AppText.cebuano:
+          'Kinahanglan ug mas klarong hulagway o field checking bago magdesisyon sa pagtambal.',
+    },
+  };
+
+  static const Map<String, Map<String, String>> guidance = {
+    'Healthy Fruit': {
+      AppText.tagalog: 'Malusog na bunga',
+      AppText.cebuano: 'Himsog nga bunga',
+    },
+    'Healthy Leaf': {
+      AppText.tagalog: 'Malusog na dahon',
+      AppText.cebuano: 'Himsog nga dahon',
+    },
+    'HLB (Greening)': {
+      AppText.tagalog: 'HLB / Greening',
+      AppText.cebuano: 'HLB / Greening',
+    },
+    'Citrus Canker': {
+      AppText.tagalog: 'Citrus Canker',
+      AppText.cebuano: 'Citrus Canker',
+    },
+    'Anthracnose': {
+      AppText.tagalog: 'Anthracnose',
+      AppText.cebuano: 'Anthracnose',
+    },
+    'Melanose': {
+      AppText.tagalog: 'Melanose',
+      AppText.cebuano: 'Melanose',
+    },
+    'Citrus Scab': {
+      AppText.tagalog: 'Citrus Scab',
+      AppText.cebuano: 'Citrus Scab',
+    },
+    'Brown Spot': {
+      AppText.tagalog: 'Brown Spot',
+      AppText.cebuano: 'Brown Spot',
+    },
+    'Nutrient Deficiency': {
+      AppText.tagalog: 'Kakulangan sa nutrisyon',
+      AppText.cebuano: 'Kulang sa nutrisyon',
+    },
+    'Description': {
+      AppText.tagalog: 'Paglalarawan',
+      AppText.cebuano: 'Paglarawan',
+    },
+    'Healthy plant': {
+      AppText.tagalog: 'Malusog na halaman',
+      AppText.cebuano: 'Himsog nga tanom',
+    },
+    'Bacterial disease': {
+      AppText.tagalog: 'Bacterial disease',
+      AppText.cebuano: 'Bacterial disease',
+    },
+    'Fungal disease': {
+      AppText.tagalog: 'Fungal disease',
+      AppText.cebuano: 'Fungal disease',
+    },
+    'Nutritional condition': {
+      AppText.tagalog: 'Kondisyon sa nutrisyon',
+      AppText.cebuano: 'Kondisyon sa nutrisyon',
+    },
+    'Needs field confirmation': {
+      AppText.tagalog: 'Kailangan ng field confirmation',
+      AppText.cebuano: 'Kinahanglan ug field confirmation',
+    },
+    'Continue weekly checks, proper watering, sanitation, and balanced nutrition.':
+        {
+      AppText.tagalog:
+          'Ipagpatuloy ang lingguhang check, tamang dilig, kalinisan, at balanseng nutrisyon.',
+      AppText.cebuano:
+          'Padayon ang kada semana nga check, sakto nga pagbisbis, kalimpyo, ug balanse nga nutrisyon.',
+    },
+    'No insecticide, fungicide, or bactericide is needed. Do not spray a healthy tree unless a pest or disease is confirmed.':
+        {
+      AppText.tagalog:
+          'Hindi kailangan ng insecticide, fungicide, o bactericide. Huwag mag-spray sa malusog na puno maliban kung kumpirmado ang peste o sakit.',
+      AppText.cebuano:
+          'Dili kinahanglan ug insecticide, fungicide, o bactericide. Ayaw pag-spray sa himsog nga kahoy gawas kung kumpirmado ang peste o sakit.',
+    },
+    'Keep the tree healthy with proper watering, compost or balanced citrus nutrition, pruning for airflow, and weekly inspection of leaves, fruit, and stems.':
+        {
+      AppText.tagalog:
+          'Panatilihing malusog ang puno sa tamang dilig, compost o balanseng citrus nutrition, pruning para sa hangin, at lingguhang pag-check ng dahon, bunga, at sanga.',
+      AppText.cebuano:
+          'Padayon nga himsog ang kahoy gamit ang sakto nga pagbisbis, compost o balanse nga citrus nutrition, pruning para sa airflow, ug kada semana nga check sa dahon, bunga, ug sanga.',
+    },
+    'Use clean planting materials, sanitize pruning tools, remove fallen diseased debris, and monitor nearby trees for early symptoms.':
+        {
+      AppText.tagalog:
+          'Gumamit ng malinis na pananim, linisin ang pruning tools, alisin ang nalaglag na may sakit na debris, at bantayan ang kalapit na puno.',
+      AppText.cebuano:
+          'Gamit ug limpyo nga tanom, limpyohi ang pruning tools, tangtanga ang nahulog nga diseased debris, ug bantayi ang duol nga kahoy.',
+    },
+    'Isolate suspicious trees and ask an agriculture technician for field confirmation before removing trees.':
+        {
+      AppText.tagalog:
+          'Ihiwalay ang kahina-hinalang puno at humingi muna ng field confirmation sa agriculture technician bago magtanggal ng puno.',
+      AppText.cebuano:
+          'Ilain ang kahina-hinalang kahoy ug pangayo una ug field confirmation sa agriculture technician bago tangtangon ang kahoy.',
+    },
+    'There is no curative spray for HLB. If Asian citrus psyllids are present, use only labeled psyllid insecticides under technician guidance to reduce spread. Severely infected trees may need removal after confirmation.':
+        {
+      AppText.tagalog:
+          'Walang spray na nakapagpapagaling sa HLB. Kung may Asian citrus psyllids, gumamit lamang ng labeled psyllid insecticide sa gabay ng technician para mabawasan ang pagkalat. Ang malubhang infected na puno ay maaaring kailangang tanggalin matapos makumpirma.',
+      AppText.cebuano:
+          'Walay spray nga makaayo sa HLB. Kung naay Asian citrus psyllids, gamit lang ug labeled psyllid insecticide ubos sa giya sa technician aron maminusan ang pagkaylap. Ang grabe nga infected nga kahoy mahimong tangtangon human makumpirma.',
+    },
+    'Use clean disease-free seedlings, remove or isolate confirmed infected trees, control ants that protect sap-sucking pests, prune weak branches, improve irrigation, and keep the tree nutritionally balanced.':
+        {
+      AppText.tagalog:
+          'Gumamit ng malinis at disease-free seedlings, alisin o ihiwalay ang kumpirmadong infected na puno, kontrolin ang langgam na nagpoprotekta sa pesteng sumisipsip ng dagta, putulin ang mahihinang sanga, ayusin ang patubig, at panatilihing balanse ang nutrisyon.',
+      AppText.cebuano:
+          'Gamit ug limpyo ug disease-free seedlings, tangtanga o ilain ang kumpirmadong infected nga kahoy, kontrola ang hulmigas nga nagpanalipod sa sap-sucking pests, putla ang huyang nga sanga, ayuha ang irigasyon, ug panatilihing balanse ang nutrisyon.',
+    },
+    'Monitor new flush for psyllids, avoid moving infected seedlings or budwood, report suspected HLB, and protect young trees from psyllid access where possible.':
+        {
+      AppText.tagalog:
+          'Bantayan ang bagong tubo para sa psyllids, iwasang ilipat ang infected seedlings o budwood, i-report ang suspected HLB, at protektahan ang batang puno kung maaari.',
+      AppText.cebuano:
+          'Bantayi ang bag-ong tubo para sa psyllids, likayi ang pagbalhin sa infected seedlings o budwood, i-report ang suspected HLB, ug protektahi ang batan-ong kahoy kung mahimo.',
+    },
+    'Prune badly affected parts with disinfected tools and avoid working on wet trees to limit spread.':
+        {
+      AppText.tagalog:
+          'Putulin ang malubhang apektadong bahagi gamit ang disinfected tools at iwasang magtrabaho sa basang puno para hindi kumalat.',
+      AppText.cebuano:
+          'Putla ang grabe nga apektadong bahin gamit ang disinfected tools ug likayi ang pagtrabaho sa basa nga kahoy aron dili mokaylap.',
+    },
+    'Use a labeled copper-based bactericide/fungicide only as a protectant and only after field confirmation. It helps reduce new infection but will not heal existing spots.':
+        {
+      AppText.tagalog:
+          'Gumamit ng labeled copper-based bactericide/fungicide bilang proteksyon lamang at pagkatapos ng field confirmation. Nakakatulong itong bawasan ang bagong impeksyon pero hindi nito pinapagaling ang lumang batik.',
+      AppText.cebuano:
+          'Gamit ug labeled copper-based bactericide/fungicide isip proteksyon lang ug human sa field confirmation. Makatabang kini sa pagpamenos sa bag-ong impeksyon pero dili makaayo sa daang lama.',
+    },
+    'Prune light infections, remove fallen infected leaves and fruit, disinfect tools between cuts, avoid overhead watering, and do not handle trees while leaves are wet.':
+        {
+      AppText.tagalog:
+          'Putulin ang kaunting infected na bahagi, alisin ang nalaglag na infected na dahon at bunga, linisin ang tools sa bawat putol, iwasan ang overhead watering, at huwag hawakan ang puno habang basa ang dahon.',
+      AppText.cebuano:
+          'Putla ang gaan nga infected nga bahin, tangtanga ang nahulog nga infected nga dahon ug bunga, limpyohi ang tools matag putol, likayi ang overhead watering, ug ayaw hilabti ang kahoy samtang basa ang dahon.',
+    },
+    'Reduce leaf wounds, manage citrus leafminer if present, plant windbreaks where practical, and avoid moving infected plant material.':
+        {
+      AppText.tagalog:
+          'Bawasan ang sugat sa dahon, kontrolin ang citrus leafminer kung mayroon, magtanim ng windbreaks kung kaya, at iwasang ilipat ang infected na bahagi ng halaman.',
+      AppText.cebuano:
+          'Pamenosi ang samad sa dahon, kontrola ang citrus leafminer kung naa, pagtanom ug windbreaks kung mahimo, ug likayi ang pagbalhin sa infected nga bahin sa tanom.',
+    },
+    'Remove infected plant material, improve airflow, and confirm the disease before applying any spray.':
+        {
+      AppText.tagalog:
+          'Alisin ang infected na bahagi ng halaman, pagandahin ang daloy ng hangin, at kumpirmahin muna ang sakit bago mag-spray.',
+      AppText.cebuano:
+          'Tangtanga ang infected nga bahin sa tanom, ayuha ang airflow, ug kumpirmaha una ang sakit bago mag-spray.',
+    },
+    'If anthracnose was severe or confirmed, use a labeled copper fungicide or other locally approved citrus fungicide as a protectant. Follow the label and avoid spraying during very hot weather.':
+        {
+      AppText.tagalog:
+          'Kung malala o kumpirmado ang anthracnose, gumamit ng labeled copper fungicide o ibang locally approved citrus fungicide bilang proteksyon. Sundin ang label at iwasang mag-spray kapag sobrang init.',
+      AppText.cebuano:
+          'Kung grabe o kumpirmado ang anthracnose, gamit ug labeled copper fungicide o uban pang locally approved citrus fungicide isip proteksyon. Sunda ang label ug likayi ang pag-spray kung init kaayo.',
+    },
+    'Prune dead twigs and infected branches, remove fallen diseased material, improve sunlight and airflow, avoid overhead watering, and reduce plant stress.':
+        {
+      AppText.tagalog:
+          'Putulin ang patay na maliliit na sanga at infected branches, alisin ang nalaglag na may sakit na materyal, pagandahin ang araw at airflow, iwasan ang overhead watering, at bawasan ang stress ng halaman.',
+      AppText.cebuano:
+          'Putla ang patay nga gagmay nga sanga ug infected branches, tangtanga ang nahulog nga diseased material, paayosa ang adlaw ug airflow, likayi ang overhead watering, ug pamenosi ang stress sa tanom.',
+    },
+    'Keep the canopy open, sanitize pruning tools, maintain balanced nutrition, and inspect after long wet periods.':
+        {
+      AppText.tagalog:
+          'Panatilihing bukas ang canopy, linisin ang pruning tools, panatilihin ang balanseng nutrisyon, at mag-inspect pagkatapos ng mahabang basang panahon.',
+      AppText.cebuano:
+          'Panatilihing bukas ang canopy, limpyohi ang pruning tools, panatilihing balanse ang nutrisyon, ug mag-inspect human sa taas nga basa nga panahon.',
+    },
+    'Remove dead twigs and dead wood because melanose commonly survives there.':
+        {
+      AppText.tagalog:
+          'Alisin ang patay na maliliit na sanga at patay na kahoy dahil doon madalas nabubuhay ang melanose.',
+      AppText.cebuano:
+          'Tangtanga ang patay nga gagmay nga sanga ug patay nga kahoy kay didto kasagarang mabuhi ang melanose.',
+    },
+    'Use a labeled copper fungicide protectively when disease pressure is high, especially during wet periods. Copper protects new growth and fruit but does not repair old damage.':
+        {
+      AppText.tagalog:
+          'Gumamit ng labeled copper fungicide bilang proteksyon kapag mataas ang pressure ng sakit, lalo na sa basang panahon. Pinoprotektahan ng copper ang bagong tubo at bunga pero hindi nito inaayos ang lumang sira.',
+      AppText.cebuano:
+          'Gamit ug labeled copper fungicide isip proteksyon kung taas ang pressure sa sakit, labi na sa basa nga panahon. Giprotektahan sa copper ang bag-ong tubo ug bunga pero dili niini ayohon ang daang kadaot.',
+    },
+    'Prune and remove dead wood, collect fallen infected debris, improve airflow, and keep the tree vigorous with proper water and nutrition.':
+        {
+      AppText.tagalog:
+          'Putulin at alisin ang patay na kahoy, kolektahin ang nalaglag na infected debris, pagandahin ang airflow, at panatilihing malakas ang puno sa tamang tubig at nutrisyon.',
+      AppText.cebuano:
+          'Putla ug tangtanga ang patay nga kahoy, kolektaha ang nahulog nga infected debris, ayuha ang airflow, ug panatilihing kusgan ang kahoy sa sakto nga tubig ug nutrisyon.',
+    },
+    'Regularly remove dead twigs, avoid dense canopy growth, and monitor fruit during rainy weather.':
+        {
+      AppText.tagalog:
+          'Regular na alisin ang patay na maliliit na sanga, iwasan ang sobrang siksik na canopy, at bantayan ang bunga sa tag-ulan.',
+      AppText.cebuano:
+          'Regular nga tangtanga ang patay nga gagmay nga sanga, likayi ang sobra kadense nga canopy, ug bantayi ang bunga sa ting-ulan.',
+    },
+    'Protect new leaves and young fruit early; old scab marks will not disappear.':
+        {
+      AppText.tagalog:
+          'Protektahan agad ang bagong dahon at batang bunga; hindi mawawala ang lumang scab marks.',
+      AppText.cebuano:
+          'Protektahi dayon ang bag-ong dahon ug batan-ong bunga; dili mawala ang daang scab marks.',
+    },
+    'Use labeled citrus fungicides such as copper-based protectants or other technician-approved fungicides at the correct early-growth timing.':
+        {
+      AppText.tagalog:
+          'Gumamit ng labeled citrus fungicides tulad ng copper-based protectants o ibang fungicide na aprubado ng technician sa tamang early-growth timing.',
+      AppText.cebuano:
+          'Gamit ug labeled citrus fungicides sama sa copper-based protectants o uban pang fungicide nga approved sa technician sa sakto nga early-growth timing.',
+    },
+    'Prune infected shoots, remove badly affected fruit, improve airflow, avoid overhead watering, and use organic-approved copper only if allowed and needed.':
+        {
+      AppText.tagalog:
+          'Putulin ang infected shoots, alisin ang malubhang apektadong bunga, pagandahin ang airflow, iwasan ang overhead watering, at gumamit ng organic-approved copper kung pinapayagan at kailangan.',
+      AppText.cebuano:
+          'Putla ang infected shoots, tangtanga ang grabe nga apektadong bunga, ayuha ang airflow, likayi ang overhead watering, ug gamit ug organic-approved copper kung tugot ug kinahanglan.',
+    },
+    'Inspect spring flush and young fruit, reduce leaf wetness, sanitize pruning tools, and remove carryover infected material.':
+        {
+      AppText.tagalog:
+          'Suriin ang bagong tubo at batang bunga, bawasan ang pagkabasa ng dahon, linisin ang pruning tools, at alisin ang natirang infected material.',
+      AppText.cebuano:
+          'Susiha ang bag-ong tubo ug batan-ong bunga, pamenosi ang kabasa sa dahon, limpyohi ang pruning tools, ug tangtanga ang nahabilin nga infected material.',
+    },
+    'Remove infected plant material, improve airflow, and consult a technician before applying any approved treatment.':
+        {
+      AppText.tagalog:
+          'Alisin ang infected na bahagi ng halaman, pagandahin ang airflow, at kumonsulta muna sa technician bago gumamit ng aprubadong treatment.',
+      AppText.cebuano:
+          'Tangtanga ang infected nga bahin sa tanom, ayuha ang airflow, ug konsultaha una ang technician bago mogamit ug approved treatment.',
+    },
+    'Use labeled copper fungicide or other locally approved citrus fungicide preventively when brown spot is confirmed. Rotate products as advised to reduce resistance risk.':
+        {
+      AppText.tagalog:
+          'Gumamit ng labeled copper fungicide o ibang locally approved citrus fungicide bilang pag-iwas kapag kumpirmado ang brown spot. Magpalit-palit ng produkto ayon sa payo para mabawasan ang resistance risk.',
+      AppText.cebuano:
+          'Gamit ug labeled copper fungicide o uban pang locally approved citrus fungicide isip prevention kung kumpirmado ang brown spot. Ilisi-ilisi ang produkto sumala sa tambag aron maminusan ang resistance risk.',
+    },
+    'Remove infected leaves and twigs, prune dense canopy, improve drainage and airflow, avoid overhead watering, and avoid excessive nitrogen that causes tender flush.':
+        {
+      AppText.tagalog:
+          'Alisin ang infected na dahon at maliliit na sanga, putulin ang siksik na canopy, ayusin ang drainage at airflow, iwasan ang overhead watering, at iwasan ang sobrang nitrogen.',
+      AppText.cebuano:
+          'Tangtanga ang infected nga dahon ug gagmay nga sanga, putla ang dense canopy, ayuha ang drainage ug airflow, likayi ang overhead watering, ug likayi ang sobra nga nitrogen.',
+    },
+    'Monitor new flush and young fruit, reduce long leaf-wetness periods, and remove diseased debris from the farm.':
+        {
+      AppText.tagalog:
+          'Bantayan ang bagong tubo at batang bunga, bawasan ang matagal na pagkabasa ng dahon, at alisin ang diseased debris sa taniman.',
+      AppText.cebuano:
+          'Bantayi ang bag-ong tubo ug batan-ong bunga, pamenosi ang dugay nga kabasa sa dahon, ug tangtanga ang diseased debris sa uma.',
+    },
+    'Check soil and fertiliser practice, then correct nutrients with guidance from an agriculture technician.':
+        {
+      AppText.tagalog:
+          'Suriin ang lupa at paraan ng fertilizer, pagkatapos ay ayusin ang nutrisyon sa gabay ng agriculture technician.',
+      AppText.cebuano:
+          'Susiha ang yuta ug pamaagi sa fertilizer, unya ayuha ang nutrisyon uban sa giya sa agriculture technician.',
+    },
+    'Do not use insecticide or fungicide for nutrient deficiency. Use soil or leaf testing, correct soil pH if needed, and apply the proper citrus fertilizer or micronutrient product.':
+        {
+      AppText.tagalog:
+          'Huwag gumamit ng insecticide o fungicide para sa nutrient deficiency. Gumamit ng soil o leaf testing, ayusin ang soil pH kung kailangan, at maglagay ng tamang citrus fertilizer o micronutrient product.',
+      AppText.cebuano:
+          'Ayaw gamit ug insecticide o fungicide para sa nutrient deficiency. Gamit ug soil o leaf testing, ayuha ang soil pH kung kinahanglan, ug butangi ug sakto nga citrus fertilizer o micronutrient product.',
+    },
+    'Improve soil health with compost, mulch kept away from the trunk, proper watering, drainage correction, and organic citrus fertilizer where available.':
+        {
+      AppText.tagalog:
+          'Pagandahin ang lupa gamit ang compost, mulch na malayo sa puno, tamang dilig, pag-ayos ng drainage, at organic citrus fertilizer kung mayroon.',
+      AppText.cebuano:
+          'Paayosa ang yuta gamit ang compost, mulch nga layo sa punoan, sakto nga pagbisbis, pag-ayo sa drainage, ug organic citrus fertilizer kung naa.',
+    },
+    'Avoid overwatering, maintain drainage, fertilize on schedule, and inspect roots and soil pH when yellowing continues.':
+        {
+      AppText.tagalog:
+          'Iwasan ang sobrang dilig, panatilihin ang drainage, mag-fertilize sa tamang schedule, at suriin ang ugat at soil pH kung tuloy ang paninilaw.',
+      AppText.cebuano:
+          'Likayi ang sobra nga pagbisbis, panatilihing maayo ang drainage, pag-fertilize sa sakto nga schedule, ug susiha ang gamot ug soil pH kung padayon ang pag-yellow.',
+    },
+    'Take another clear leaf photo and ask an agriculture technician to inspect the tree if symptoms spread.':
+        {
+      AppText.tagalog:
+          'Kumuha ng panibagong malinaw na larawan ng dahon at magpasuri sa agriculture technician kung kumalat ang sintomas.',
+      AppText.cebuano:
+          'Kuha ug laing klarong hulagway sa dahon ug magpasusi sa agriculture technician kung mokaylap ang sintomas.',
+    },
+    'Do not apply pesticide until the disease is confirmed. Wrong treatment can waste money and harm the tree.':
+        {
+      AppText.tagalog:
+          'Huwag gumamit ng pesticide hanggang hindi kumpirmado ang sakit. Ang maling treatment ay sayang sa pera at maaaring makasama sa puno.',
+      AppText.cebuano:
+          'Ayaw paggamit ug pesticide hangtod dili kumpirmado ang sakit. Ang sayop nga treatment makausik sa kwarta ug makadaot sa kahoy.',
+    },
+    'Retake a clear photo, isolate suspicious plant material, remove fallen debris, and keep the tree watered and nourished while waiting for confirmation.':
+        {
+      AppText.tagalog:
+          'Ulitin ang malinaw na larawan, ihiwalay ang kahina-hinalang bahagi, alisin ang nalaglag na debris, at panatilihing nadidiligan at may nutrisyon ang puno habang naghihintay ng kumpirmasyon.',
+      AppText.cebuano:
+          'Balika ug kuha ang klarong hulagway, ilain ang kahina-hinalang bahin, tangtanga ang nahulog nga debris, ug panatilihing nadidiligan ug naay nutrisyon ang kahoy samtang naghuwat ug kumpirmasyon.',
+    },
+  };
 }
 
 class PriorityCard extends StatelessWidget {
@@ -4480,6 +6787,7 @@ class HistoryTile extends StatelessWidget {
     this.imageUrl,
     this.selected = false,
     this.onTap,
+    this.onRetry,
   });
 
   final String disease;
@@ -4489,6 +6797,7 @@ class HistoryTile extends StatelessWidget {
   final String? imageUrl;
   final bool selected;
   final VoidCallback? onTap;
+  final Future<void> Function()? onRetry;
 
   Color _statusColor() {
     return switch (status) {
@@ -4499,10 +6808,11 @@ class HistoryTile extends StatelessWidget {
       'Low risk' => CcColors.green,
       'Medium risk' => CcColors.orange,
       'High risk' => CcColors.red,
-      'Not reported' => CcColors.red,
-      'Saved locally, will retry' => CcColors.red,
-      'Waiting for internet connection' => CcColors.orange,
-      'Sending report...' => CcColors.orange,
+      'Saved on phone' => CcColors.muted,
+      'Could not send. Tap to try again' => CcColors.red,
+      'Waiting for internet' => CcColors.orange,
+      'Sending...' => CcColors.orange,
+      'Sent to barangay' => CcColors.green,
       _ => CcColors.muted,
     };
   }
@@ -4516,10 +6826,11 @@ class HistoryTile extends StatelessWidget {
       'Low risk' => CcColors.soft,
       'Medium risk' => CcColors.orangeSoft,
       'High risk' => CcColors.red.withValues(alpha: .1),
-      'Not reported' => CcColors.red.withValues(alpha: .08),
-      'Saved locally, will retry' => CcColors.red.withValues(alpha: .08),
-      'Waiting for internet connection' => CcColors.orangeSoft,
-      'Sending report...' => CcColors.orangeSoft,
+      'Saved on phone' => CcColors.softStrong,
+      'Could not send. Tap to try again' => CcColors.red.withValues(alpha: .08),
+      'Waiting for internet' => CcColors.orangeSoft,
+      'Sending...' => CcColors.orangeSoft,
+      'Sent to barangay' => CcColors.soft,
       _ => CcColors.softStrong,
     };
   }
@@ -4645,6 +6956,25 @@ class HistoryTile extends StatelessWidget {
                               ),
                             ),
                           ),
+                          if (onRetry != null)
+                            TextButton.icon(
+                              onPressed: () => onRetry!(),
+                              icon: const Icon(Icons.sync_rounded, size: 14),
+                              label: Text(context.t('Retry')),
+                              style: TextButton.styleFrom(
+                                foregroundColor: CcColors.green,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                minimumSize: const Size(0, 30),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                textStyle: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                     ],

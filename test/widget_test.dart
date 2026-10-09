@@ -48,7 +48,10 @@ void main() {
     await pumpCalamansiCare(tester);
 
     expect(find.text('CalamansiCare'), findsOneWidget);
-    expect(find.text('Choose language'), findsOneWidget);
+    expect(
+      find.text('Choose language / Pumili ng wika / Pili og pinulongan'),
+      findsOneWidget,
+    );
     expect(find.text('English'), findsOneWidget);
     expect(find.text('Tagalog'), findsOneWidget);
     expect(find.text('Cebuano'), findsOneWidget);
@@ -80,7 +83,10 @@ void main() {
     await tester.tap(find.text('Tagalog'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Pumili ng wika'), findsOneWidget);
+    expect(
+      find.text('Choose language / Pumili ng wika / Pili og pinulongan'),
+      findsOneWidget,
+    );
     expect(find.text('Simulan ang pagsusuri'), findsOneWidget);
 
     await tester.tap(find.text('Simulan ang pagsusuri'));

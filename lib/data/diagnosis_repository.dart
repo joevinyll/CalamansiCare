@@ -30,6 +30,10 @@ class DiagnosisRepository {
   static const _supabaseUrl = String.fromEnvironment('SUPABASE_URL');
   static const _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 
+  bool get isSupabaseConfigured => _supabase != null;
+  User? get currentUser => _supabase?.auth.currentUser;
+  Stream<AuthState>? get authStateChanges => _supabase?.auth.onAuthStateChange;
+
   Future<void> initialise() {
     _initialiseFuture ??= _initialise();
     return _initialiseFuture!;
@@ -39,7 +43,7 @@ class DiagnosisRepository {
     final databasePath = await getDatabasesPath();
     _database ??= await openDatabase(
       join(databasePath, 'calamansi_care.db'),
-      version: 3,
+      version: 5,
       onCreate: (db, _) async {
         await _createSchema(db);
       },
@@ -50,15 +54,26 @@ class DiagnosisRepository {
         if (oldVersion < 3) {
           await _upgradeQueuedReportsForSync(db);
         }
+        if (oldVersion < 4) {
+          await _upgradeQueuedReportsForAuth(db);
+        }
+        if (oldVersion < 5) {
+          await _upgradeDiagnosesForAuth(db);
+        }
       },
     );
     await _createSettingsTable(_database!);
     await _upgradeQueuedReportsForSync(_database!);
+    await _upgradeQueuedReportsForAuth(_database!);
+    await _upgradeDiagnosesForAuth(_database!);
 
     if (_supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty) {
       await Supabase.initialize(
         url: _supabaseUrl,
         publishableKey: _supabaseAnonKey,
+        authOptions: const FlutterAuthClientOptions(
+          authFlowType: AuthFlowType.pkce,
+        ),
       );
       _supabase = Supabase.instance.client;
     }
@@ -71,6 +86,7 @@ class DiagnosisRepository {
         disease TEXT NOT NULL,
         confidence REAL NOT NULL,
         image_path TEXT,
+        user_id TEXT,
         created_at TEXT NOT NULL
       )
     ''');
@@ -85,6 +101,7 @@ class DiagnosisRepository {
             device_id TEXT,
             device_signature TEXT,
             device_model TEXT,
+            user_id TEXT,
             farmer_name TEXT,
             farmer_location TEXT,
             created_at TEXT NOT NULL,
@@ -140,6 +157,24 @@ class DiagnosisRepository {
     );
   }
 
+  Future<void> _upgradeQueuedReportsForAuth(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(queued_reports)');
+    final existingColumns =
+        columns.map((column) => column['name'] as String).toSet();
+    if (!existingColumns.contains('user_id')) {
+      await db.execute('ALTER TABLE queued_reports ADD COLUMN user_id TEXT');
+    }
+  }
+
+  Future<void> _upgradeDiagnosesForAuth(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(diagnoses)');
+    final existingColumns =
+        columns.map((column) => column['name'] as String).toSet();
+    if (!existingColumns.contains('user_id')) {
+      await db.execute('ALTER TABLE diagnoses ADD COLUMN user_id TEXT');
+    }
+  }
+
   Future<AppSettings> loadSettings() async {
     final db = await _db;
     final rows = await db.query('app_settings');
@@ -190,6 +225,28 @@ class DiagnosisRepository {
     }
   }
 
+  Future<void> clearLocalAccountData(AppSettings settingsToKeep) async {
+    final db = await _db;
+    final now = DateTime.now().toUtc().toIso8601String();
+    await db.transaction((txn) async {
+      await txn.delete('queued_reports');
+      await txn.delete('diagnoses');
+      await txn.delete('app_settings');
+      for (final entry in settingsToKeep.toMap().entries) {
+        await txn.insert(
+          'app_settings',
+          {
+            'key': entry.key,
+            'value': entry.value,
+            'updated_at': now,
+            'synced_at': now,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+    });
+  }
+
   Future<bool> syncSettings() async {
     final client = _supabase;
     if (client == null) return false;
@@ -206,6 +263,7 @@ class DiagnosisRepository {
     try {
       await client.from('farmer_settings').upsert({
         'device_id': settings.deviceId,
+        'user_id': client.auth.currentUser?.id,
         'device_signature': settings.deviceSignature,
         'device_model': settings.deviceModel,
         'device_brand': settings.deviceBrand,
@@ -218,6 +276,7 @@ class DiagnosisRepository {
         'font_scale': settings.fontScale,
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }, onConflict: 'device_id').timeout(const Duration(seconds: 20));
+      await upsertFarmerProfile(settings);
       await db.update(
         'app_settings',
         {'synced_at': DateTime.now().toUtc().toIso8601String()},
@@ -227,6 +286,167 @@ class DiagnosisRepository {
     } catch (_) {
       return false;
     }
+  }
+
+  Future<AuthResponse> signUpWithEmail({
+    required String email,
+    required String password,
+    required AppSettings settings,
+  }) async {
+    final client = _requireSupabase();
+    final response = await client.auth.signUp(
+      email: email.trim(),
+      password: password,
+      data: {
+        'farmer_name': settings.farmerName,
+        'farmer_location': settings.farmerLocation,
+        'office_email': settings.officeEmail,
+        'device_signature': settings.deviceSignature,
+      },
+    );
+    return response;
+  }
+
+  Future<AuthResponse> signInWithEmail({
+    required String email,
+    required String password,
+  }) {
+    final client = _requireSupabase();
+    return client.auth.signInWithPassword(
+      email: email.trim(),
+      password: password,
+    );
+  }
+
+  Future<bool> signInWithGoogle() {
+    final client = _requireSupabase();
+    return client.auth.signInWithOAuth(
+      OAuthProvider.google,
+      redirectTo: 'io.supabase.calamansicare://login-callback/',
+    );
+  }
+
+  Future<void> sendPasswordResetEmail(String email) async {
+    final client = _requireSupabase();
+    await client.auth.resetPasswordForEmail(
+      email.trim(),
+      redirectTo: 'io.supabase.calamansicare://reset-password/',
+    );
+  }
+
+  Future<void> signOut() async {
+    final client = _requireSupabase();
+    await client.auth.signOut();
+  }
+
+  Future<void> upsertFarmerProfile(AppSettings settings) async {
+    final client = _supabase;
+    final user = client?.auth.currentUser;
+    if (client == null || user == null) return;
+    await client.from('farmer_profiles').upsert({
+      'user_id': user.id,
+      'farmer_name': settings.farmerName,
+      'farmer_location': settings.farmerLocation,
+      'office_email': settings.officeEmail,
+      'language': settings.language,
+      'consent_enabled': settings.consentEnabled,
+      'font_scale': settings.fontScale,
+      'device_id': settings.deviceId,
+      'device_signature': settings.deviceSignature,
+      'device_model': settings.deviceModel,
+      'device_brand': settings.deviceBrand,
+      'android_version': settings.androidVersion,
+      'updated_at': DateTime.now().toUtc().toIso8601String(),
+    }, onConflict: 'user_id').timeout(const Duration(seconds: 20));
+  }
+
+  Future<FarmerProfile?> fetchFarmerProfile() async {
+    final client = _supabase;
+    final user = client?.auth.currentUser;
+    if (client == null || user == null) return null;
+    final rows = await client
+        .from('farmer_profiles')
+        .select()
+        .eq('user_id', user.id)
+        .limit(1)
+        .timeout(const Duration(seconds: 20)) as List<dynamic>;
+    if (rows.isEmpty) return null;
+    return FarmerProfile.fromMap(Map<String, dynamic>.from(rows.first));
+  }
+
+  Future<FarmerProfile?> fetchLatestReportProfile() async {
+    final client = _supabase;
+    final user = client?.auth.currentUser;
+    if (client == null || user == null) return null;
+    final rows = await client
+        .from('diagnosis_reports')
+        .select('farmer_name, farmer_location, office_email')
+        .eq('user_id', user.id)
+        .order('created_at', ascending: false)
+        .limit(1)
+        .timeout(const Duration(seconds: 20)) as List<dynamic>;
+    if (rows.isEmpty) return null;
+    return FarmerProfile.fromMap({
+      ...Map<String, dynamic>.from(rows.first as Map),
+      'language': 'English',
+      'consent_enabled': true,
+      'font_scale': 1.0,
+    });
+  }
+
+  Future<int> restoreSignedInReports() async {
+    final client = _supabase;
+    final user = client?.auth.currentUser;
+    if (client == null || user == null) return 0;
+    final db = await _db;
+    final rows = await client
+        .from('diagnosis_reports')
+        .select()
+        .eq('user_id', user.id)
+        .order('reported_at', ascending: false)
+        .limit(100)
+        .timeout(const Duration(seconds: 20)) as List<dynamic>;
+    var restored = 0;
+    for (final item in rows) {
+      final row = Map<String, dynamic>.from(item as Map);
+      final localReportId = '${row['local_report_id'] ?? ''}';
+      if (localReportId.trim().isEmpty) continue;
+      final existing = await db.query(
+        'queued_reports',
+        columns: ['id'],
+        where: 'local_report_id = ?',
+        whereArgs: [localReportId],
+        limit: 1,
+      );
+      if (existing.isNotEmpty) continue;
+      final createdAt =
+          '${row['reported_at'] ?? row['created_at'] ?? DateTime.now().toUtc().toIso8601String()}';
+      final diagnosisId = await db.insert('diagnoses', {
+        'disease': '${row['disease'] ?? 'Unknown'}',
+        'confidence': ((row['confidence'] as num?)?.toDouble() ?? 0),
+        'image_path': null,
+        'user_id': user.id,
+        'created_at': createdAt,
+      });
+      await db.insert('queued_reports', {
+        'local_report_id': localReportId,
+        'diagnosis_id': diagnosisId,
+        'office_email': '${row['office_email'] ?? ''}',
+        'consent': row['consent'] == true ? 1 : 0,
+        'status': reportStatusSynced,
+        'device_id': '${row['device_id'] ?? ''}',
+        'device_signature': '${row['device_signature'] ?? ''}',
+        'device_model': '${row['device_model'] ?? ''}',
+        'user_id': user.id,
+        'farmer_name': '${row['farmer_name'] ?? ''}',
+        'farmer_location': '${row['farmer_location'] ?? ''}',
+        'created_at': createdAt,
+        'synced_at':
+            '${row['synced_at'] ?? DateTime.now().toUtc().toIso8601String()}',
+      });
+      restored++;
+    }
+    return restored;
   }
 
   Future<int> saveDiagnosis({
@@ -239,6 +459,7 @@ class DiagnosisRepository {
       'disease': disease,
       'confidence': confidence,
       'image_path': imagePath,
+      'user_id': _supabase?.auth.currentUser?.id,
       'created_at': DateTime.now().toUtc().toIso8601String(),
     });
   }
@@ -250,6 +471,10 @@ class DiagnosisRepository {
     required AppSettings settings,
   }) async {
     final db = await _db;
+    final user = _supabase?.auth.currentUser;
+    if (user == null) {
+      throw const AuthRequiredException();
+    }
     final createdAt = DateTime.now().toUtc().toIso8601String();
     final localReportId = _generateLocalReportId(settings.deviceId, createdAt);
     return db.insert('queued_reports', {
@@ -261,6 +486,7 @@ class DiagnosisRepository {
       'device_id': settings.deviceId,
       'device_signature': settings.deviceSignature,
       'device_model': settings.deviceModel,
+      'user_id': user.id,
       'farmer_name': settings.farmerName,
       'farmer_location': settings.farmerLocation,
       'created_at': createdAt,
@@ -270,6 +496,8 @@ class DiagnosisRepository {
   Future<int> syncQueuedReports() async {
     final client = _supabase;
     if (client == null) return 0;
+    final user = client.auth.currentUser;
+    if (user == null) return 0;
     await syncSettings();
     final db = await _db;
     final reports = await db.rawQuery('''
@@ -281,6 +509,7 @@ class DiagnosisRepository {
         r.device_id,
         r.device_signature,
         r.device_model,
+        r.user_id,
         r.farmer_name,
         r.farmer_location,
         r.consent,
@@ -289,8 +518,10 @@ class DiagnosisRepository {
         d.image_path
       FROM queued_reports r
       JOIN diagnoses d ON d.id = r.diagnosis_id
-      WHERE r.status IN ('waiting_internet', 'failed_retry') AND r.consent = 1
-    ''');
+      WHERE r.status IN ('waiting_internet', 'failed_retry')
+        AND r.consent = 1
+        AND r.user_id = ?
+    ''', [user.id]);
     var synced = 0;
     for (final report in reports) {
       final localReportId = (report['local_report_id'] as String?) ??
@@ -315,6 +546,7 @@ class DiagnosisRepository {
           'device_id': report['device_id'],
           'device_signature': report['device_signature'],
           'device_model': report['device_model'],
+          'user_id': report['user_id'] ?? user.id,
           'farmer_name': report['farmer_name'],
           'farmer_location': report['farmer_location'],
           'office_email': report['office_email'],
@@ -430,6 +662,8 @@ class DiagnosisRepository {
   Future<List<Map<String, Object?>>> getRecentDiagnoses(
       {int limit = 30}) async {
     final db = await _db;
+    final userId = _supabase?.auth.currentUser?.id;
+    final userFilter = userId == null ? 'd.user_id IS NULL' : 'd.user_id = ?';
     return db.rawQuery('''
       SELECT
         d.id,
@@ -464,9 +698,10 @@ class DiagnosisRepository {
           ORDER BY r.id DESC LIMIT 1
         ) AS report_synced_at
       FROM diagnoses d
+      WHERE $userFilter
       ORDER BY d.created_at DESC
       LIMIT ?
-    ''', [limit]);
+    ''', userId == null ? [limit] : [userId, limit]);
   }
 
   Future<void> markDiagnosisReportForRetry(int diagnosisId) async {
@@ -478,6 +713,36 @@ class DiagnosisRepository {
           "diagnosis_id = ? AND status IN ('failed_retry', 'syncing', 'waiting_internet')",
       whereArgs: [diagnosisId],
     );
+  }
+
+  Future<Map<String, Object?>?> getLatestReportSummary() async {
+    final db = await _db;
+    final userId = _supabase?.auth.currentUser?.id;
+    final userFilter = userId == null ? 'r.user_id IS NULL' : 'r.user_id = ?';
+    final rows = await db.rawQuery('''
+      SELECT
+        r.id,
+        r.local_report_id,
+        r.office_email,
+        r.consent,
+        r.status,
+        r.farmer_name,
+        r.farmer_location,
+        r.created_at AS report_created_at,
+        r.synced_at AS report_synced_at,
+        d.id AS diagnosis_id,
+        d.disease,
+        d.confidence,
+        d.image_path,
+        d.created_at AS scan_created_at
+      FROM queued_reports r
+      JOIN diagnoses d ON d.id = r.diagnosis_id
+      WHERE $userFilter
+      ORDER BY r.created_at DESC, r.id DESC
+      LIMIT 1
+    ''', userId == null ? const [] : [userId]);
+    if (rows.isEmpty) return null;
+    return rows.first;
   }
 
   Future<void> deleteDiagnosis(int diagnosisId) async {
@@ -501,25 +766,32 @@ class DiagnosisRepository {
   /// again after every new scan/queue/sync so the Home cards stay current.
   Future<HomeStats> getHomeStats() async {
     final db = await _db;
-    final checksCountRows =
-        await db.rawQuery('SELECT COUNT(*) AS count FROM diagnoses');
+    final userId = _supabase?.auth.currentUser?.id;
+    final diagnosisFilter = userId == null ? 'user_id IS NULL' : 'user_id = ?';
+    final reportFilter = userId == null ? 'user_id IS NULL' : 'user_id = ?';
+    final userArgs = userId == null ? const <Object?>[] : <Object?>[userId];
+
+    final checksCountRows = await db.rawQuery(
+      'SELECT COUNT(*) AS count FROM diagnoses WHERE $diagnosisFilter',
+      userArgs,
+    );
     final checksCount = (checksCountRows.first['count'] as int?) ?? 0;
 
     final queuedCountRows = await db.rawQuery(
-      "SELECT COUNT(*) AS count FROM queued_reports WHERE status IN ('waiting_internet', 'syncing', 'failed_retry')",
+      "SELECT COUNT(*) AS count FROM queued_reports WHERE $reportFilter AND status IN ('waiting_internet', 'syncing', 'failed_retry')",
+      userArgs,
     );
     final queuedCount = (queuedCountRows.first['count'] as int?) ?? 0;
 
     final sentCountRows = await db.rawQuery(
-      "SELECT COUNT(*) AS count FROM queued_reports WHERE status = 'synced'",
+      "SELECT COUNT(*) AS count FROM queued_reports WHERE $reportFilter AND status = 'synced'",
+      userArgs,
     );
     final sentCount = (sentCountRows.first['count'] as int?) ?? 0;
 
-    final lastDiagnosisRows = await db.query(
-      'diagnoses',
-      columns: ['confidence'],
-      orderBy: 'created_at DESC',
-      limit: 1,
+    final lastDiagnosisRows = await db.rawQuery(
+      'SELECT confidence FROM diagnoses WHERE $diagnosisFilter ORDER BY created_at DESC LIMIT 1',
+      userArgs,
     );
     final lastConfidence = lastDiagnosisRows.isEmpty
         ? null
@@ -536,6 +808,14 @@ class DiagnosisRepository {
   Future<Database> get _db async {
     await initialise();
     return _database!;
+  }
+
+  SupabaseClient _requireSupabase() {
+    final client = _supabase;
+    if (client == null) {
+      throw const SupabaseUnavailableException();
+    }
+    return client;
   }
 
   String _generateDeviceId() {
@@ -594,6 +874,43 @@ class HomeStats {
   final int queuedReports;
   final int sentReports;
   final double? lastConfidence;
+}
+
+class SupabaseUnavailableException implements Exception {
+  const SupabaseUnavailableException();
+}
+
+class AuthRequiredException implements Exception {
+  const AuthRequiredException();
+}
+
+class FarmerProfile {
+  const FarmerProfile({
+    required this.farmerName,
+    required this.farmerLocation,
+    required this.officeEmail,
+    required this.language,
+    required this.consentEnabled,
+    required this.fontScale,
+  });
+
+  final String farmerName;
+  final String farmerLocation;
+  final String officeEmail;
+  final String language;
+  final bool consentEnabled;
+  final double fontScale;
+
+  factory FarmerProfile.fromMap(Map<String, dynamic> map) {
+    return FarmerProfile(
+      farmerName: '${map['farmer_name'] ?? ''}',
+      farmerLocation: '${map['farmer_location'] ?? ''}',
+      officeEmail: '${map['office_email'] ?? ''}',
+      language: '${map['language'] ?? 'English'}',
+      consentEnabled: map['consent_enabled'] != false,
+      fontScale: ((map['font_scale'] as num?)?.toDouble() ?? 1).clamp(.9, 1.3),
+    );
+  }
 }
 
 class AppSettings {
@@ -669,6 +986,7 @@ class CommunityReport {
     required this.id,
     required this.disease,
     required this.confidence,
+    required this.farmerName,
     required this.location,
     required this.priority,
     required this.deviceSignature,
@@ -679,6 +997,7 @@ class CommunityReport {
   final String id;
   final String disease;
   final double confidence;
+  final String farmerName;
   final String location;
   final String priority;
   final String deviceSignature;
@@ -690,6 +1009,7 @@ class CommunityReport {
       id: '${map['id'] ?? ''}',
       disease: '${map['disease'] ?? 'Unknown'}',
       confidence: ((map['confidence'] as num?)?.toDouble() ?? 0),
+      farmerName: '${map['farmer_name'] ?? ''}',
       location: '${map['farmer_location'] ?? 'Unknown area'}',
       priority: '${map['priority'] ?? 'Needs review'}',
       deviceSignature: '${map['device_signature'] ?? 'Unknown device'}',
