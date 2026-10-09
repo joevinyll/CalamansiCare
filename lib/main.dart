@@ -920,6 +920,22 @@ class AppText {
       tagalog: 'Kailangang suriin',
       cebuano: 'Kinahanglan susihon',
     },
+    'No reports yet': {
+      tagalog: 'Wala pang ulat',
+      cebuano: 'Wala pay report',
+    },
+    'High risk': {
+      tagalog: 'Mataas ang panganib',
+      cebuano: 'Taas ang risgo',
+    },
+    'Medium risk': {
+      tagalog: 'Katamtaman ang panganib',
+      cebuano: 'Katamtaman ang risgo',
+    },
+    'Low risk': {
+      tagalog: 'Mababa ang panganib',
+      cebuano: 'Ubos ang risgo',
+    },
     'Community overview': {
       tagalog: 'Kabuuang tingin sa komunidad',
       cebuano: 'Kinatibuk-ang tan-aw sa komunidad',
@@ -1362,7 +1378,7 @@ class StartupLoadingScreen extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const BrandMark(onDark: true),
+                const BrandMark(onDark: true, centered: true),
                 const SizedBox(height: 38),
                 Container(
                   width: 126,
@@ -3256,6 +3272,15 @@ class _BarangayReportsScreenState extends State<BarangayReportsScreen> {
           if (_selectedReport == null && reports.isNotEmpty) {
             _selectedReport = reports.first;
           }
+          final highRiskCount = reports
+              .where((report) => communityRiskLabel(report) == 'High risk')
+              .length;
+          final mediumRiskCount = reports
+              .where((report) => communityRiskLabel(report) == 'Medium risk')
+              .length;
+          final lowRiskCount = reports
+              .where((report) => communityRiskLabel(report) == 'Low risk')
+              .length;
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -3275,11 +3300,10 @@ class _BarangayReportsScreenState extends State<BarangayReportsScreen> {
                     InfoRow(
                         label: 'Shared reports',
                         value: '${reports.length} reports from nearby users'),
-                    InfoRow(
-                      label: 'Status',
-                      value: state.isOnline
-                          ? 'Needs review'
-                          : 'Waiting for internet connection',
+                    RiskOverviewRow(
+                      lowRiskCount: lowRiskCount,
+                      mediumRiskCount: mediumRiskCount,
+                      highRiskCount: highRiskCount,
                     ),
                   ],
                 ),
@@ -3309,7 +3333,7 @@ class _BarangayReportsScreenState extends State<BarangayReportsScreen> {
                                     _selectedReport?.id == report.id;
                                 return HistoryTile(
                                   disease: report.disease,
-                                  status: report.priority,
+                                  status: communityRiskLabel(report),
                                   date: report.location,
                                   confidence:
                                       '${(report.confidence * 100).toStringAsFixed(0)}% confidence',
@@ -3339,6 +3363,28 @@ class _BarangayReportsScreenState extends State<BarangayReportsScreen> {
       ),
     );
   }
+}
+
+bool isLowRiskCommunityReport(CommunityReport report) {
+  final disease = report.disease.toLowerCase();
+  return disease.contains('healthy') || disease.contains('nutrient');
+}
+
+bool isHighRiskCommunityReport(CommunityReport report) {
+  final disease = report.disease.toLowerCase();
+  return disease.contains('hlb') ||
+      disease.contains('greening') ||
+      disease.contains('canker');
+}
+
+String communityRiskLabel(CommunityReport report) {
+  if (isHighRiskCommunityReport(report)) return 'High risk';
+  if (isLowRiskCommunityReport(report)) return 'Low risk';
+  return 'Medium risk';
+}
+
+String communityReportCountText(int count) {
+  return count == 1 ? '1 report' : '$count reports';
 }
 
 class BarangayReportDetailScreen extends StatelessWidget {
@@ -3379,7 +3425,10 @@ class BarangayReportDetailScreen extends StatelessWidget {
                               '${(report.confidence * 100).toStringAsFixed(0)}%',
                         ),
                         InfoRow(label: 'Location', value: report.location),
-                        InfoRow(label: 'Status', value: report.priority),
+                        InfoRow(
+                          label: 'Status',
+                          value: communityRiskLabel(report),
+                        ),
                         InfoRow(
                           label: 'Device signature',
                           value: report.deviceSignature,
@@ -3741,13 +3790,17 @@ class OfflinePill extends StatelessWidget {
 }
 
 class BrandMark extends StatelessWidget {
-  const BrandMark({super.key, this.onDark = false});
+  const BrandMark({super.key, this.onDark = false, this.centered = false});
 
   final bool onDark;
+  final bool centered;
 
   @override
   Widget build(BuildContext context) {
     return Row(
+      mainAxisAlignment:
+          centered ? MainAxisAlignment.center : MainAxisAlignment.start,
+      mainAxisSize: centered ? MainAxisSize.min : MainAxisSize.max,
       children: [
         Container(
           width: 42,
@@ -4440,6 +4493,12 @@ class HistoryTile extends StatelessWidget {
   Color _statusColor() {
     return switch (status) {
       'Sent' => CcColors.green,
+      'Open' => CcColors.green,
+      'Needs review' => CcColors.orange,
+      'High priority' => CcColors.red,
+      'Low risk' => CcColors.green,
+      'Medium risk' => CcColors.orange,
+      'High risk' => CcColors.red,
       'Not reported' => CcColors.red,
       'Saved locally, will retry' => CcColors.red,
       'Waiting for internet connection' => CcColors.orange,
@@ -4451,6 +4510,12 @@ class HistoryTile extends StatelessWidget {
   Color _statusBackground() {
     return switch (status) {
       'Sent' => CcColors.soft,
+      'Open' => CcColors.soft,
+      'Needs review' => CcColors.orangeSoft,
+      'High priority' => CcColors.red.withValues(alpha: .1),
+      'Low risk' => CcColors.soft,
+      'Medium risk' => CcColors.orangeSoft,
+      'High risk' => CcColors.red.withValues(alpha: .1),
       'Not reported' => CcColors.red.withValues(alpha: .08),
       'Saved locally, will retry' => CcColors.red.withValues(alpha: .08),
       'Waiting for internet connection' => CcColors.orangeSoft,
@@ -4463,10 +4528,15 @@ class HistoryTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final statusColor = _statusColor();
     final statusBackground = _statusBackground();
+    final selectedBorderColor =
+        selected && status == 'High risk' ? CcColors.red : CcColors.green;
+    final selectedBackground = selected && status == 'High risk'
+        ? CcColors.red.withValues(alpha: .06)
+        : CcColors.soft;
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: Material(
-        color: selected ? CcColors.soft : Colors.white,
+        color: selected ? selectedBackground : Colors.white,
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
@@ -4476,7 +4546,7 @@ class HistoryTile extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: selected ? CcColors.green : CcColors.line,
+                color: selected ? selectedBorderColor : CcColors.line,
                 width: selected ? 1.5 : 1,
               ),
             ),
@@ -4788,6 +4858,93 @@ class InfoRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class RiskOverviewRow extends StatelessWidget {
+  const RiskOverviewRow({
+    super.key,
+    required this.lowRiskCount,
+    required this.mediumRiskCount,
+    required this.highRiskCount,
+  });
+
+  final int lowRiskCount;
+  final int mediumRiskCount;
+  final int highRiskCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 96,
+            child: Text(
+              context.t('Status'),
+              style: const TextStyle(
+                color: CcColors.muted,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                RiskCountLine(
+                  count: lowRiskCount,
+                  label: 'Low risk',
+                  color: CcColors.green,
+                ),
+                const SizedBox(height: 4),
+                RiskCountLine(
+                  count: mediumRiskCount,
+                  label: 'Medium risk',
+                  color: CcColors.orange,
+                ),
+                const SizedBox(height: 4),
+                RiskCountLine(
+                  count: highRiskCount,
+                  label: 'High risk',
+                  color: CcColors.red,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class RiskCountLine extends StatelessWidget {
+  const RiskCountLine({
+    super.key,
+    required this.count,
+    required this.label,
+    required this.color,
+  });
+
+  final int count;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      '$count ${context.t(label)}',
+      textAlign: TextAlign.right,
+      style: TextStyle(
+        fontWeight: FontWeight.w900,
+        fontSize: 12,
+        color: color,
+      ),
+      softWrap: true,
     );
   }
 }
