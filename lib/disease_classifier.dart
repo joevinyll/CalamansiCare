@@ -58,9 +58,9 @@ class DiseaseClassifier {
     if (rawScores.isEmpty) {
       throw StateError('The model returned no classification scores.');
     }
-    if (rawScores.length > labels.length) {
+    if (rawScores.length != labels.length) {
       throw StateError(
-        'The model has ${rawScores.length} outputs but only ${labels.length} labels are configured.',
+        'The model has ${rawScores.length} outputs but ${labels.length} labels are configured. The label order must exactly match the model output.',
       );
     }
 

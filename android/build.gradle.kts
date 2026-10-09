@@ -30,13 +30,7 @@ subprojects {
 
     tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
         compilerOptions {
-            val target =
-                if (project.name == "tflite_flutter") {
-                    org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_11
-                } else {
-                    org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
-                }
-            jvmTarget.set(target)
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
         }
     }
 

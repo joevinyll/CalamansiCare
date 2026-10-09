@@ -23,7 +23,8 @@ const diseaseLabels = [
   'Citrus Canker',
   'Citrus Scab',
   'HLB (Greening)',
-  'Healthy',
+  'Healthy Fruit',
+  'Healthy Leaf',
   'Melanose',
   'Nutrient Deficiency',
 ];
@@ -78,7 +79,8 @@ class DiseaseGuidance {
 
 DiseaseGuidance guidanceFor(String disease) {
   switch (disease) {
-    case 'Healthy':
+    case 'Healthy Fruit':
+    case 'Healthy Leaf':
       return const DiseaseGuidance(
         kind: 'Healthy plant',
         recommendation:
@@ -760,7 +762,14 @@ class AppText {
       cebuano: 'Mga na-save nga scan ug status sa report sa kini nga phone.',
     },
     'Queued': {tagalog: 'Nakapila', cebuano: 'Nakapila'},
-    'Healthy': {tagalog: 'Malusog', cebuano: 'Himsog'},
+    'Healthy Fruit': {
+      tagalog: 'Malusog na bunga',
+      cebuano: 'Himsog nga prutas',
+    },
+    'Healthy Leaf': {
+      tagalog: 'Malusog na dahon',
+      cebuano: 'Himsog nga dahon',
+    },
     'Not reported': {tagalog: 'Hindi naiulat', cebuano: 'Wala gi-report'},
     'Date': {tagalog: 'Petsa', cebuano: 'Petsa'},
     'Report status': {tagalog: 'Status ng ulat', cebuano: 'Status sa report'},
