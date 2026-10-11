@@ -6,8 +6,6 @@ import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.location.Location
 import android.location.LocationManager
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -32,10 +30,6 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun handleLocationRequest(result: MethodChannel.Result) {
-        if (!isOnline()) {
-            result.error("offline", "Phone appears offline.", null)
-            return
-        }
         if (!isLocationServiceEnabled()) {
             result.error("service_disabled", "Location service is turned off.", null)
             return
@@ -86,6 +80,8 @@ class MainActivity : FlutterActivity() {
         result.success(
             mapOf(
                 "address" to resolveAddress(location),
+                "latitude" to location.latitude,
+                "longitude" to location.longitude,
                 "coordinates" to String.format(
                     Locale.US,
                     "%.5f, %.5f",
@@ -103,10 +99,18 @@ class MainActivity : FlutterActivity() {
                 .getFromLocation(location.latitude, location.longitude, 1)
                 ?.firstOrNull()
             listOfNotNull(
+                address?.subThoroughfare,
+                address?.thoroughfare,
+                address?.featureName,
+                address?.subLocality,
                 address?.locality,
                 address?.subAdminArea,
                 address?.adminArea
-            ).distinct().joinToString(", ")
+            )
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+                .joinToString(", ")
         } catch (_: Exception) {
             ""
         }
@@ -127,13 +131,6 @@ class MainActivity : FlutterActivity() {
         val manager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         return manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
             manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-    }
-
-    private fun isOnline(): Boolean {
-        val manager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val network = manager.activeNetwork ?: return false
-        val capabilities = manager.getNetworkCapabilities(network) ?: return false
-        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     override fun onRequestPermissionsResult(

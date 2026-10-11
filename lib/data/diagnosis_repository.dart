@@ -43,7 +43,7 @@ class DiagnosisRepository {
     final databasePath = await getDatabasesPath();
     _database ??= await openDatabase(
       join(databasePath, 'calamansi_care.db'),
-      version: 5,
+      version: 6,
       onCreate: (db, _) async {
         await _createSchema(db);
       },
@@ -60,12 +60,16 @@ class DiagnosisRepository {
         if (oldVersion < 5) {
           await _upgradeDiagnosesForAuth(db);
         }
+        if (oldVersion < 6) {
+          await _upgradeQueuedReportsForCoordinates(db);
+        }
       },
     );
     await _createSettingsTable(_database!);
     await _upgradeQueuedReportsForSync(_database!);
     await _upgradeQueuedReportsForAuth(_database!);
     await _upgradeDiagnosesForAuth(_database!);
+    await _upgradeQueuedReportsForCoordinates(_database!);
 
     if (_supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty) {
       await Supabase.initialize(
@@ -104,6 +108,8 @@ class DiagnosisRepository {
             user_id TEXT,
             farmer_name TEXT,
             farmer_location TEXT,
+            latitude REAL,
+            longitude REAL,
             created_at TEXT NOT NULL,
             synced_at TEXT
           )
@@ -146,6 +152,10 @@ class DiagnosisRepository {
         'ALTER TABLE queued_reports ADD COLUMN farmer_name TEXT');
     await addColumn('farmer_location',
         'ALTER TABLE queued_reports ADD COLUMN farmer_location TEXT');
+    await addColumn(
+        'latitude', 'ALTER TABLE queued_reports ADD COLUMN latitude REAL');
+    await addColumn(
+        'longitude', 'ALTER TABLE queued_reports ADD COLUMN longitude REAL');
     await db.execute('''
       CREATE UNIQUE INDEX IF NOT EXISTS idx_queued_reports_local_report_id
       ON queued_reports(local_report_id)
@@ -172,6 +182,18 @@ class DiagnosisRepository {
         columns.map((column) => column['name'] as String).toSet();
     if (!existingColumns.contains('user_id')) {
       await db.execute('ALTER TABLE diagnoses ADD COLUMN user_id TEXT');
+    }
+  }
+
+  Future<void> _upgradeQueuedReportsForCoordinates(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(queued_reports)');
+    final existingColumns =
+        columns.map((column) => column['name'] as String).toSet();
+    if (!existingColumns.contains('latitude')) {
+      await db.execute('ALTER TABLE queued_reports ADD COLUMN latitude REAL');
+    }
+    if (!existingColumns.contains('longitude')) {
+      await db.execute('ALTER TABLE queued_reports ADD COLUMN longitude REAL');
     }
   }
 
@@ -260,6 +282,13 @@ class DiagnosisRepository {
       for (final row in rows) row['key'] as String: row['value'] as String,
     };
     final settings = AppSettings.fromMap(values);
+    var didSync = false;
+    try {
+      await upsertFarmerProfile(settings);
+      didSync = true;
+    } catch (_) {
+      // Profile sync can retry later when Supabase/RLS is ready.
+    }
     try {
       await client.from('farmer_settings').upsert({
         'device_id': settings.deviceId,
@@ -270,22 +299,26 @@ class DiagnosisRepository {
         'android_version': settings.androidVersion,
         'farmer_name': settings.farmerName,
         'farmer_location': settings.farmerLocation,
+        'latitude': settings.latitude,
+        'longitude': settings.longitude,
         'office_email': settings.officeEmail,
         'language': settings.language,
         'consent_enabled': settings.consentEnabled,
         'font_scale': settings.fontScale,
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }, onConflict: 'device_id').timeout(const Duration(seconds: 20));
-      await upsertFarmerProfile(settings);
-      await db.update(
-        'app_settings',
-        {'synced_at': DateTime.now().toUtc().toIso8601String()},
-        where: 'synced_at IS NULL',
-      );
-      return true;
+      didSync = true;
     } catch (_) {
-      return false;
+      // Device settings sync can retry later. Profile sync above is enough for
+      // account restore and Supabase farmer details.
     }
+    if (!didSync) return false;
+    await db.update(
+      'app_settings',
+      {'synced_at': DateTime.now().toUtc().toIso8601String()},
+      where: 'synced_at IS NULL',
+    );
+    return true;
   }
 
   Future<AuthResponse> signUpWithEmail({
@@ -347,6 +380,8 @@ class DiagnosisRepository {
       'user_id': user.id,
       'farmer_name': settings.farmerName,
       'farmer_location': settings.farmerLocation,
+      'latitude': settings.latitude,
+      'longitude': settings.longitude,
       'office_email': settings.officeEmail,
       'language': settings.language,
       'consent_enabled': settings.consentEnabled,
@@ -380,7 +415,8 @@ class DiagnosisRepository {
     if (client == null || user == null) return null;
     final rows = await client
         .from('diagnosis_reports')
-        .select('farmer_name, farmer_location, office_email')
+        .select(
+            'farmer_name, farmer_location, office_email, latitude, longitude')
         .eq('user_id', user.id)
         .order('created_at', ascending: false)
         .limit(1)
@@ -440,6 +476,8 @@ class DiagnosisRepository {
         'user_id': user.id,
         'farmer_name': '${row['farmer_name'] ?? ''}',
         'farmer_location': '${row['farmer_location'] ?? ''}',
+        'latitude': (row['latitude'] as num?)?.toDouble(),
+        'longitude': (row['longitude'] as num?)?.toDouble(),
         'created_at': createdAt,
         'synced_at':
             '${row['synced_at'] ?? DateTime.now().toUtc().toIso8601String()}',
@@ -447,6 +485,24 @@ class DiagnosisRepository {
       restored++;
     }
     return restored;
+  }
+
+  Future<void> attachLocalRowsToCurrentUser() async {
+    final user = _supabase?.auth.currentUser;
+    if (user == null) return;
+    final db = await _db;
+    await db.transaction((txn) async {
+      await txn.update(
+        'diagnoses',
+        {'user_id': user.id},
+        where: 'user_id IS NULL',
+      );
+      await txn.update(
+        'queued_reports',
+        {'user_id': user.id},
+        where: 'user_id IS NULL',
+      );
+    });
   }
 
   Future<int> saveDiagnosis({
@@ -475,6 +531,12 @@ class DiagnosisRepository {
     if (user == null) {
       throw const AuthRequiredException();
     }
+    await db.update(
+      'diagnoses',
+      {'user_id': user.id},
+      where: 'id = ? AND user_id IS NULL',
+      whereArgs: [diagnosisId],
+    );
     final createdAt = DateTime.now().toUtc().toIso8601String();
     final localReportId = _generateLocalReportId(settings.deviceId, createdAt);
     return db.insert('queued_reports', {
@@ -489,6 +551,8 @@ class DiagnosisRepository {
       'user_id': user.id,
       'farmer_name': settings.farmerName,
       'farmer_location': settings.farmerLocation,
+      'latitude': settings.latitude,
+      'longitude': settings.longitude,
       'created_at': createdAt,
     });
   }
@@ -498,6 +562,7 @@ class DiagnosisRepository {
     if (client == null) return 0;
     final user = client.auth.currentUser;
     if (user == null) return 0;
+    await attachLocalRowsToCurrentUser();
     await syncSettings();
     final db = await _db;
     final reports = await db.rawQuery('''
@@ -512,6 +577,8 @@ class DiagnosisRepository {
         r.user_id,
         r.farmer_name,
         r.farmer_location,
+        r.latitude,
+        r.longitude,
         r.consent,
         d.disease,
         d.confidence,
@@ -549,6 +616,8 @@ class DiagnosisRepository {
           'user_id': report['user_id'] ?? user.id,
           'farmer_name': report['farmer_name'],
           'farmer_location': report['farmer_location'],
+          'latitude': report['latitude'],
+          'longitude': report['longitude'],
           'office_email': report['office_email'],
           'disease': report['disease'],
           'confidence': report['confidence'],
@@ -672,6 +741,11 @@ class DiagnosisRepository {
         d.image_path,
         d.created_at,
         (
+          SELECT r.id FROM queued_reports r
+          WHERE r.diagnosis_id = d.id
+          ORDER BY r.id DESC LIMIT 1
+        ) AS report_id,
+        (
           SELECT r.status FROM queued_reports r
           WHERE r.diagnosis_id = d.id
           ORDER BY r.id DESC LIMIT 1
@@ -715,6 +789,19 @@ class DiagnosisRepository {
     );
   }
 
+  Future<String?> getReportStatus(int reportId) async {
+    final db = await _db;
+    final rows = await db.query(
+      'queued_reports',
+      columns: ['status'],
+      where: 'id = ?',
+      whereArgs: [reportId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['status'] as String?;
+  }
+
   Future<Map<String, Object?>?> getLatestReportSummary() async {
     final db = await _db;
     final userId = _supabase?.auth.currentUser?.id;
@@ -728,6 +815,8 @@ class DiagnosisRepository {
         r.status,
         r.farmer_name,
         r.farmer_location,
+        r.latitude,
+        r.longitude,
         r.created_at AS report_created_at,
         r.synced_at AS report_synced_at,
         d.id AS diagnosis_id,
@@ -767,8 +856,8 @@ class DiagnosisRepository {
   Future<HomeStats> getHomeStats() async {
     final db = await _db;
     final userId = _supabase?.auth.currentUser?.id;
-    final diagnosisFilter = userId == null ? 'user_id IS NULL' : 'user_id = ?';
-    final reportFilter = userId == null ? 'user_id IS NULL' : 'user_id = ?';
+    final diagnosisFilter = userId == null ? '1 = 1' : 'user_id = ?';
+    final reportFilter = userId == null ? '1 = 1' : 'user_id = ?';
     final userArgs = userId == null ? const <Object?>[] : <Object?>[userId];
 
     final checksCountRows = await db.rawQuery(
@@ -888,6 +977,8 @@ class FarmerProfile {
   const FarmerProfile({
     required this.farmerName,
     required this.farmerLocation,
+    required this.latitude,
+    required this.longitude,
     required this.officeEmail,
     required this.language,
     required this.consentEnabled,
@@ -896,6 +987,8 @@ class FarmerProfile {
 
   final String farmerName;
   final String farmerLocation;
+  final double? latitude;
+  final double? longitude;
   final String officeEmail;
   final String language;
   final bool consentEnabled;
@@ -905,6 +998,8 @@ class FarmerProfile {
     return FarmerProfile(
       farmerName: '${map['farmer_name'] ?? ''}',
       farmerLocation: '${map['farmer_location'] ?? ''}',
+      latitude: (map['latitude'] as num?)?.toDouble(),
+      longitude: (map['longitude'] as num?)?.toDouble(),
       officeEmail: '${map['office_email'] ?? ''}',
       language: '${map['language'] ?? 'English'}',
       consentEnabled: map['consent_enabled'] != false,
@@ -921,6 +1016,8 @@ class AppSettings {
     required this.fontScale,
     required this.farmerName,
     required this.farmerLocation,
+    required this.latitude,
+    required this.longitude,
     required this.locationNote,
     required this.officeEmail,
     required this.deviceId,
@@ -936,6 +1033,8 @@ class AppSettings {
   final double fontScale;
   final String farmerName;
   final String farmerLocation;
+  final double? latitude;
+  final double? longitude;
   final String locationNote;
   final String officeEmail;
   final String deviceId;
@@ -952,6 +1051,8 @@ class AppSettings {
       fontScale: double.tryParse(map['font_scale'] ?? '') ?? 1,
       farmerName: map['farmer_name'] ?? '',
       farmerLocation: map['farmer_location'] ?? '',
+      latitude: double.tryParse(map['latitude'] ?? ''),
+      longitude: double.tryParse(map['longitude'] ?? ''),
       locationNote: map['location_note'] ?? 'Location not set',
       officeEmail: map['office_email'] ?? '',
       deviceId: map['device_id'] ?? 'device-local',
@@ -970,6 +1071,8 @@ class AppSettings {
       'font_scale': '$fontScale',
       'farmer_name': farmerName,
       'farmer_location': farmerLocation,
+      'latitude': latitude?.toString() ?? '',
+      'longitude': longitude?.toString() ?? '',
       'location_note': locationNote,
       'office_email': officeEmail,
       'device_id': deviceId,

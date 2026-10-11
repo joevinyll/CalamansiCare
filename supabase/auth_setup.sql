@@ -5,12 +5,15 @@ create extension if not exists pgcrypto;
 
 create table if not exists public.farmer_settings (
   device_id text primary key,
+  user_id uuid references auth.users(id) on delete set null,
   device_signature text,
   device_model text,
   device_brand text,
   android_version text,
   farmer_name text,
   farmer_location text,
+  latitude double precision,
+  longitude double precision,
   office_email text,
   language text default 'English',
   consent_enabled boolean default true,
@@ -18,10 +21,28 @@ create table if not exists public.farmer_settings (
   updated_at timestamptz default now()
 );
 
+alter table public.farmer_settings
+add column if not exists user_id uuid references auth.users(id) on delete set null,
+add column if not exists device_signature text,
+add column if not exists device_model text,
+add column if not exists device_brand text,
+add column if not exists android_version text,
+add column if not exists farmer_name text,
+add column if not exists farmer_location text,
+add column if not exists latitude double precision,
+add column if not exists longitude double precision,
+add column if not exists office_email text,
+add column if not exists language text default 'English',
+add column if not exists consent_enabled boolean default true,
+add column if not exists font_scale double precision default 1.0,
+add column if not exists updated_at timestamptz default now();
+
 create table if not exists public.farmer_profiles (
   user_id uuid primary key references auth.users(id) on delete cascade,
   farmer_name text default '',
   farmer_location text default '',
+  latitude double precision,
+  longitude double precision,
   office_email text default '',
   language text default 'English',
   consent_enabled boolean default true,
@@ -36,6 +57,7 @@ create table if not exists public.farmer_profiles (
 );
 
 alter table public.farmer_profiles enable row level security;
+alter table public.farmer_settings enable row level security;
 
 drop policy if exists "Farmers can read own profile" on public.farmer_profiles;
 create policy "Farmers can read own profile"
@@ -59,8 +81,27 @@ to authenticated
 using (auth.uid() = user_id)
 with check (auth.uid() = user_id);
 
-alter table public.farmer_settings
-add column if not exists user_id uuid references auth.users(id) on delete set null;
+drop policy if exists "Farmers can read own settings" on public.farmer_settings;
+create policy "Farmers can read own settings"
+on public.farmer_settings
+for select
+to authenticated
+using (auth.uid() = user_id);
+
+drop policy if exists "Farmers can create own settings" on public.farmer_settings;
+create policy "Farmers can create own settings"
+on public.farmer_settings
+for insert
+to authenticated
+with check (auth.uid() = user_id);
+
+drop policy if exists "Farmers can update own settings" on public.farmer_settings;
+create policy "Farmers can update own settings"
+on public.farmer_settings
+for update
+to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
 
 create table if not exists public.diagnosis_reports (
   id bigint generated always as identity primary key,
@@ -82,6 +123,8 @@ add column if not exists device_signature text,
 add column if not exists device_model text,
 add column if not exists farmer_name text,
 add column if not exists farmer_location text,
+add column if not exists latitude double precision,
+add column if not exists longitude double precision,
 add column if not exists image_path text,
 add column if not exists consent boolean default false,
 add column if not exists status text default 'synced',
@@ -129,9 +172,11 @@ select
   confidence,
   coalesce(nullif(farmer_name, ''), '---') as farmer_name,
   coalesce(nullif(farmer_location, ''), 'Barangay area') as farmer_location,
+  latitude,
+  longitude,
   case
     when disease ilike '%HLB%' or disease ilike '%Greening%' or disease ilike '%Canker%' then 'High risk'
-    when disease ilike '%Healthy%' or disease ilike '%Nutrient%' then 'Low risk'
+    when disease ilike '%Healthy%' or disease ilike '%Sooty%' then 'Low risk'
     else 'Medium risk'
   end as priority,
   image_url,

@@ -1,5 +1,7 @@
 alter table public.diagnosis_reports
-add column if not exists image_url text;
+add column if not exists image_url text,
+add column if not exists latitude double precision,
+add column if not exists longitude double precision;
 
 drop view if exists public.community_reports;
 
@@ -10,9 +12,11 @@ select
   confidence,
   coalesce(nullif(farmer_name, ''), '---') as farmer_name,
   coalesce(nullif(farmer_location, ''), 'Barangay area') as farmer_location,
+  latitude,
+  longitude,
   case
     when disease ilike '%HLB%' or disease ilike '%Greening%' or disease ilike '%Canker%' then 'High risk'
-    when disease ilike '%Healthy%' or disease ilike '%Nutrient%' then 'Low risk'
+    when disease ilike '%Healthy%' or disease ilike '%Sooty%' then 'Low risk'
     else 'Medium risk'
   end as priority,
   image_url,

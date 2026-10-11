@@ -26,7 +26,7 @@ const diseaseLabels = [
   'Healthy Fruit',
   'Healthy Leaf',
   'Melanose',
-  'Nutrient Deficiency',
+  'Sooty Mold',
 ];
 
 const locationChannel = MethodChannel('calamansi_care/location');
@@ -221,17 +221,17 @@ DiseaseGuidance guidanceFor(String disease) {
         prevention:
             'Monitor new flush and young fruit, reduce long leaf-wetness periods, and remove diseased debris from the farm.',
       );
-    case 'Nutrient Deficiency':
+    case 'Sooty Mold':
       return const DiseaseGuidance(
-        kind: 'Nutritional condition',
+        kind: 'Surface fungal growth',
         recommendation:
-            'Check soil and fertiliser practice, then correct nutrients with guidance from an agriculture technician.',
+            'Check for honeydew insects such as scale, aphids, mealybugs, or whiteflies, then control the insects causing the mold.',
         conventionalTreatment:
-            'Do not use insecticide or fungicide for nutrient deficiency. Use soil or leaf testing, correct soil pH if needed, and apply the proper citrus fertilizer or micronutrient product.',
+            'Sooty mold grows on sticky honeydew, so spraying fungicide alone is not the main fix. Ask a technician to identify the insect pest, then use the correct labeled insect control only when needed.',
         organicTreatment:
-            'Improve soil health with compost, mulch kept away from the trunk, proper watering, drainage correction, and organic citrus fertilizer where available.',
+            'Wash or wipe heavy black coating from leaves and fruit where practical, prune crowded branches for airflow, control ants, and use insecticidal soap or horticultural oil only when allowed and advised.',
         prevention:
-            'Avoid overwatering, maintain drainage, fertilize on schedule, and inspect roots and soil pH when yellowing continues.',
+            'Inspect the underside of leaves and young shoots weekly for sap-sucking insects, manage ants that protect them, and keep the canopy open so pests are easier to see.',
       );
     default:
       return const DiseaseGuidance(
@@ -266,8 +266,8 @@ String diseaseDescriptionFor(String disease) {
       return 'A fungal disease that can make rough raised scab marks on young leaves and fruit. It is common when new growth stays wet.';
     case 'Brown Spot':
       return 'A fungal disease that can cause brown leaf spots, fruit spots, and leaf drop. Wet weather and dense canopies can make it worse.';
-    case 'Nutrient Deficiency':
-      return 'A nutrition problem, not an infection. Leaves may yellow or look weak when the tree lacks nutrients, has root stress, or has soil problems.';
+    case 'Sooty Mold':
+      return 'A black surface mold that grows on sticky honeydew from insects like scale, aphids, mealybugs, or whiteflies. It can cover leaves and fruit and reduce sunlight reaching the leaf.';
     default:
       return 'The condition needs a clearer photo or field checking before making a treatment decision.';
   }
@@ -1271,6 +1271,10 @@ class AppText {
       tagalog: 'Magpatuloy offline',
       cebuano: 'Padayon offline',
     },
+    'Go to Dashboard': {
+      tagalog: 'Pumunta sa dashboard',
+      cebuano: 'Adto sa dashboard',
+    },
     'Use this account to restore synced reports later.': {
       tagalog:
           'Gamitin ang account na ito para maibalik ang synced reports sa susunod.',
@@ -1486,6 +1490,8 @@ class AppState extends ChangeNotifier {
   final bool persistSettings;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   StreamSubscription<dynamic>? _authSubscription;
+  Timer? _connectivityPollTimer;
+  bool _isCheckingConnectivity = false;
 
   String language = 'English';
   int tabIndex = 0;
@@ -1496,6 +1502,8 @@ class AppState extends ChangeNotifier {
   double fontScale = 1;
   String farmerName = '';
   String farmerLocation = '';
+  double? latitude;
+  double? longitude;
   String locationNote = 'Location not set';
   String officeEmail = '';
   String deviceId = 'device-local';
@@ -1536,6 +1544,8 @@ class AppState extends ChangeNotifier {
     fontScale = settings.fontScale.clamp(.9, 1.3);
     farmerName = settings.farmerName;
     farmerLocation = settings.farmerLocation;
+    latitude = settings.latitude;
+    longitude = settings.longitude;
     locationNote = settings.locationNote;
     officeEmail = settings.officeEmail;
     deviceId = settings.deviceId;
@@ -1567,6 +1577,8 @@ class AppState extends ChangeNotifier {
       fontScale: fontScale,
       farmerName: farmerName,
       farmerLocation: farmerLocation,
+      latitude: latitude,
+      longitude: longitude,
       locationNote: locationNote,
       officeEmail: officeEmail,
       deviceId: deviceId,
@@ -1578,26 +1590,36 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> startConnectivityMonitor() async {
-    await checkConnectivityAndSync();
+    unawaited(checkConnectivityAndSync());
     _connectivitySubscription?.cancel();
     _connectivitySubscription =
         Connectivity().onConnectivityChanged.listen((_) {
       checkConnectivityAndSync();
     });
+    _connectivityPollTimer?.cancel();
+    _connectivityPollTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => checkConnectivityAndSync(),
+    );
   }
 
   Future<void> checkConnectivityAndSync() async {
-    final result = await Connectivity().checkConnectivity();
-    final hasNetwork = result.any((item) => item != ConnectivityResult.none);
-    final hasInternet = hasNetwork && await _hasUsableInternet();
-    final wasOnline = isOnline;
-    isOnline = hasInternet;
-    notifyListeners();
-    if (isOnline) {
-      await DiagnosisRepository.instance.syncSettings();
-      await DiagnosisRepository.instance.syncQueuedReports();
+    if (_isCheckingConnectivity) return;
+    _isCheckingConnectivity = true;
+    try {
+      final result = await Connectivity().checkConnectivity();
+      final hasNetwork = result.any((item) => item != ConnectivityResult.none);
+      final hasInternet = hasNetwork && await _hasUsableInternet();
+      final wasOnline = isOnline;
+      isOnline = hasInternet;
+      if (wasOnline != isOnline) notifyListeners();
+      if (isOnline) {
+        await DiagnosisRepository.instance.syncSettings();
+        await DiagnosisRepository.instance.syncQueuedReports();
+      }
       await refreshStats();
-      if (!wasOnline) notifyListeners();
+    } finally {
+      _isCheckingConnectivity = false;
     }
   }
 
@@ -1622,10 +1644,10 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setLanguage(String value) {
+  Future<void> setLanguage(String value) async {
     language = value;
     notifyListeners();
-    _persistSettings();
+    await _persistSettings();
   }
 
   void setTab(int value) {
@@ -1633,10 +1655,10 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setConsent(bool value) {
+  Future<void> setConsent(bool value) async {
     consentEnabled = value;
     notifyListeners();
-    _persistSettings();
+    await _persistSettings();
   }
 
   Future<void> acceptTermsAgreement() async {
@@ -1645,10 +1667,10 @@ class AppState extends ChangeNotifier {
     await _persistSettings();
   }
 
-  void setEmail(String value) {
+  Future<void> setEmail(String value) async {
     officeEmail = value;
     notifyListeners();
-    _persistSettings();
+    await _persistSettings();
   }
 
   Future<void> refreshAuthState() async {
@@ -1675,6 +1697,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> restoreSignedInProfile() async {
+    await DiagnosisRepository.instance.attachLocalRowsToCurrentUser();
     var restoredSettings = false;
     final profile = await DiagnosisRepository.instance.fetchFarmerProfile();
     if (profile != null) {
@@ -1713,6 +1736,12 @@ class AppState extends ChangeNotifier {
         profile.farmerLocation.trim().isNotEmpty) {
       farmerLocation = profile.farmerLocation;
       locationNote = 'Restored from account';
+    }
+    if ((!onlyMissing || latitude == null) && profile.latitude != null) {
+      latitude = profile.latitude;
+    }
+    if ((!onlyMissing || longitude == null) && profile.longitude != null) {
+      longitude = profile.longitude;
     }
     if ((!onlyMissing || officeEmail.trim().isEmpty) &&
         profile.officeEmail.trim().isNotEmpty) {
@@ -1781,6 +1810,8 @@ class AppState extends ChangeNotifier {
       fontScale: fontScale,
       farmerName: '',
       farmerLocation: '',
+      latitude: null,
+      longitude: null,
       locationNote: 'Location not set',
       officeEmail: '',
       deviceId: deviceId,
@@ -1798,6 +1829,8 @@ class AppState extends ChangeNotifier {
     accountEmail = '';
     farmerName = '';
     farmerLocation = '';
+    latitude = null;
+    longitude = null;
     locationNote = 'Location not set';
     officeEmail = '';
     consentEnabled = true;
@@ -1809,23 +1842,30 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setFarmerName(String value) {
+  Future<void> setFarmerName(String value) async {
     farmerName = value;
     notifyListeners();
-    _persistSettings();
+    await _persistSettings();
   }
 
-  void setFarmerLocation(String value, {String note = 'Manual location'}) {
+  Future<void> setFarmerLocation(
+    String value, {
+    String note = 'Manual location',
+    double? latitude,
+    double? longitude,
+  }) async {
     farmerLocation = value;
+    this.latitude = latitude;
+    this.longitude = longitude;
     locationNote = note;
     notifyListeners();
-    _persistSettings();
+    await _persistSettings();
   }
 
-  void setFontScale(double value) {
+  Future<void> setFontScale(double value) async {
     fontScale = value.clamp(.9, 1.3);
     notifyListeners();
-    _persistSettings();
+    await _persistSettings();
   }
 
   Future<String?> usePhoneLocation() async {
@@ -1838,12 +1878,16 @@ class AppState extends ChangeNotifier {
       );
       final address = (result?['address'] as String?)?.trim();
       final coordinates = (result?['coordinates'] as String?)?.trim();
+      final detectedLatitude = (result?['latitude'] as num?)?.toDouble();
+      final detectedLongitude = (result?['longitude'] as num?)?.toDouble();
       final nextLocation = address?.isNotEmpty == true ? address! : coordinates;
       if (nextLocation == null || nextLocation.isEmpty) {
         locationNote = 'Location unavailable. Enter it manually.';
         return locationNote;
       }
       farmerLocation = nextLocation;
+      latitude = detectedLatitude;
+      longitude = detectedLongitude;
       locationNote = address?.isNotEmpty == true
           ? 'Auto-filled from phone location'
           : 'Auto-filled from phone coordinates';
@@ -1870,6 +1914,7 @@ class AppState extends ChangeNotifier {
   void dispose() {
     _connectivitySubscription?.cancel();
     _authSubscription?.cancel();
+    _connectivityPollTimer?.cancel();
     super.dispose();
   }
 }
@@ -1903,7 +1948,8 @@ class CalamansiCareApp extends StatefulWidget {
   State<CalamansiCareApp> createState() => _CalamansiCareAppState();
 }
 
-class _CalamansiCareAppState extends State<CalamansiCareApp> {
+class _CalamansiCareAppState extends State<CalamansiCareApp>
+    with WidgetsBindingObserver {
   late final AppState state =
       AppState(persistSettings: widget.enableSettingsPersistence);
   late final Future<void> _startupFuture;
@@ -1911,13 +1957,14 @@ class _CalamansiCareAppState extends State<CalamansiCareApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _startupFuture = _loadApp();
   }
 
   Future<void> _loadApp() async {
     await Future.wait([
       _loadAppData(),
-      Future<void>.delayed(const Duration(seconds: 4)),
+      Future<void>.delayed(const Duration(seconds: 2)),
     ]);
   }
 
@@ -1925,13 +1972,28 @@ class _CalamansiCareAppState extends State<CalamansiCareApp> {
     if (widget.enableSettingsPersistence) {
       await state.loadSavedSettings();
     }
+    if (widget.enableInitialStatsRefresh) {
+      await state.refreshStats();
+    }
     await state.startAuthMonitor();
     if (widget.enableConnectivityMonitor) {
       await state.startConnectivityMonitor();
     }
-    if (widget.enableInitialStatsRefresh) {
-      await state.refreshStats();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState appLifecycleState) {
+    if (appLifecycleState == AppLifecycleState.resumed &&
+        widget.enableConnectivityMonitor) {
+      state.checkConnectivityAndSync();
     }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    state.dispose();
+    super.dispose();
   }
 
   @override
@@ -2345,14 +2407,18 @@ class _AuthLandingScreenState extends State<AuthLandingScreen> {
           ),
           if (!isKeyboardOpen) ...[
             const SizedBox(height: 14),
-            const NoticeCard(
-              text:
-                  'You can still scan offline. Sign in is only needed before sending reports online.',
-            ),
-            const SizedBox(height: 14),
+            if (!state.isSignedIn) ...[
+              const NoticeCard(
+                text:
+                    'You can still scan offline. Sign in is only needed before sending reports online.',
+              ),
+              const SizedBox(height: 14),
+            ],
             PrimaryButton(
-              label: 'Continue offline',
-              icon: Icons.eco_rounded,
+              label: state.isSignedIn ? 'Go to Dashboard' : 'Continue offline',
+              icon: state.isSignedIn
+                  ? Icons.dashboard_rounded
+                  : Icons.eco_rounded,
               onPressed: () => replaceWith(context, const MainShell()),
             ),
           ],
@@ -2582,9 +2648,9 @@ class _AuthFormContentState extends State<AuthFormContent> {
     setState(() => _isSubmitting = true);
     try {
       if (_isCreate) {
-        state.setFarmerName(_nameController.text.trim());
-        state.setFarmerLocation(_locationController.text.trim());
-        state.setEmail(_officeEmailController.text.trim());
+        await state.setFarmerName(_nameController.text.trim());
+        await state.setFarmerLocation(_locationController.text.trim());
+        await state.setEmail(_officeEmailController.text.trim());
         await state.createAccount(email: email, password: password);
       } else {
         await state.signIn(email: email, password: password);
@@ -2891,98 +2957,115 @@ class MainShell extends StatelessWidget {
   }
 }
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Future<void>.delayed(const Duration(milliseconds: 500));
+      if (!mounted) return;
+      await AppScope.of(context).refreshStats();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return ScreenFrame(
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TopLine(
-              title: timeGreetingKey(),
-              subtitle: 'Ready to check leaves and fruits in the field.',
-              pill: state.readinessLabel,
-            ),
-            const SizedBox(height: 16),
-            DarkActionCard(
-              title: 'New disease check',
-              subtitle: 'Run AI diagnosis offline using your phone camera.',
-              buttonLabel: 'Capture',
-              secondaryLabel: 'Upload',
-              onPrimary: () => go(context, const CaptureScreen()),
-              onSecondary: () => selectLeafImage(context, ImageSource.gallery),
-            ),
-            const SizedBox(height: 18),
-            SectionCard(
-              title: 'Field summary',
-              child: Row(
-                children: [
-                  Expanded(
-                    child: StatCard(
-                      value: '${state.checksCount}',
-                      label: 'Checks',
-                      onTap: () => showFieldSummaryOverlay(
-                        context,
-                        FieldSummaryKind.checks,
+      child: RefreshIndicator(
+        onRefresh: () async {
+          await state.checkConnectivityAndSync();
+          await state.refreshStats();
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TopLine(
+                title: timeGreetingKey(),
+                subtitle: 'Ready to check leaves and fruits in the field.',
+                pill: state.readinessLabel,
+              ),
+              const SizedBox(height: 16),
+              DarkActionCard(
+                title: 'New disease check',
+                subtitle: 'Run AI diagnosis offline using your phone camera.',
+                buttonLabel: 'Capture',
+                secondaryLabel: 'Upload',
+                onPrimary: () => go(context, const CaptureScreen()),
+                onSecondary: () =>
+                    selectLeafImage(context, ImageSource.gallery),
+              ),
+              const SizedBox(height: 18),
+              SectionCard(
+                title: 'Field summary',
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: StatCard(
+                        value: '${state.checksCount}',
+                        label: 'Checks',
+                        onTap: () => openFieldSummaryOverlay(
+                            context, FieldSummaryKind.checks),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: StatCard(
-                      value: '${state.queuedReportsCount}',
-                      label: 'Queued',
-                      valueColor: CcColors.orange,
-                      onTap: () => showFieldSummaryOverlay(
-                        context,
-                        FieldSummaryKind.queued,
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: StatCard(
+                        value: '${state.queuedReportsCount}',
+                        label: 'Queued',
+                        valueColor: CcColors.orange,
+                        onTap: () => openFieldSummaryOverlay(
+                            context, FieldSummaryKind.queued),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: StatCard(
-                      value: '${state.sentReportsCount}',
-                      label: 'Sent',
-                      onTap: () => showFieldSummaryOverlay(
-                        context,
-                        FieldSummaryKind.sent,
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: StatCard(
+                        value: '${state.sentReportsCount}',
+                        label: 'Sent',
+                        onTap: () => openFieldSummaryOverlay(
+                            context, FieldSummaryKind.sent),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 18),
-            SectionCard(
-              title: 'Supported conditions',
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: diseaseLabels
-                    .map(
-                      (item) => SmallPill(
-                        item,
-                        onTap: () => showDiseaseInfoOverlay(context, item),
-                      ),
-                    )
-                    .toList(),
+              const SizedBox(height: 18),
+              SectionCard(
+                title: 'Supported conditions',
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: diseaseLabels
+                      .map(
+                        (item) => SmallPill(
+                          item,
+                          onTap: () => showDiseaseInfoOverlay(context, item),
+                        ),
+                      )
+                      .toList(),
+                ),
               ),
-            ),
-            const SizedBox(height: 18),
-            SectionCard(
-              title: 'Barangay reporting',
-              child: OutlineAction(
-                label: 'Open barangay reports',
-                icon: Icons.map_outlined,
-                onTap: () => go(context, const BarangayReportsScreen()),
+              const SizedBox(height: 18),
+              SectionCard(
+                title: 'Barangay reporting',
+                child: OutlineAction(
+                  label: 'Open barangay reports',
+                  icon: Icons.map_outlined,
+                  onTap: () => go(context, const BarangayReportsScreen()),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -3021,7 +3104,24 @@ bool _matchesFieldSummaryKind(
   };
 }
 
-void showFieldSummaryOverlay(BuildContext context, FieldSummaryKind kind) {
+Future<void> openFieldSummaryOverlay(
+  BuildContext context,
+  FieldSummaryKind kind,
+) async {
+  final state = AppScope.of(context);
+  await state.refreshStats();
+  final rows = (await DiagnosisRepository.instance.getRecentDiagnoses())
+      .where((row) => _matchesFieldSummaryKind(kind, row))
+      .toList();
+  if (!context.mounted) return;
+  showFieldSummaryOverlay(context, kind, rows);
+}
+
+void showFieldSummaryOverlay(
+  BuildContext context,
+  FieldSummaryKind kind,
+  List<Map<String, Object?>> rows,
+) {
   showDialog<void>(
     context: context,
     builder: (dialogContext) {
@@ -3033,57 +3133,43 @@ void showFieldSummaryOverlay(BuildContext context, FieldSummaryKind kind) {
           constraints: const BoxConstraints(maxWidth: 430, maxHeight: 620),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-            child: FutureBuilder<List<Map<String, Object?>>>(
-              future: DiagnosisRepository.instance.getRecentDiagnoses(),
-              builder: (context, snapshot) {
-                final rows = (snapshot.data ?? const <Map<String, Object?>>[])
-                    .where((row) => _matchesFieldSummaryKind(kind, row))
-                    .toList();
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            context.t(_fieldSummaryTitle(kind)),
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: context.t('Close'),
-                          onPressed: () => Navigator.pop(dialogContext),
-                          icon: const Icon(Icons.close_rounded),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    if (snapshot.connectionState == ConnectionState.waiting)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 28),
-                        child: Center(child: CircularProgressIndicator()),
-                      )
-                    else if (rows.isEmpty)
-                      NoticeCard(text: _fieldSummaryEmptyText(kind))
-                    else
-                      Flexible(
-                        child: ListView.separated(
-                          shrinkWrap: true,
-                          itemCount: rows.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(height: 10),
-                          itemBuilder: (context, index) {
-                            return FieldSummaryDetailTile(
-                              row: rows[index],
-                              kind: kind,
-                            );
-                          },
-                        ),
+                    Expanded(
+                      child: Text(
+                        context.t(_fieldSummaryTitle(kind)),
+                        style: Theme.of(context).textTheme.titleLarge,
                       ),
+                    ),
+                    IconButton(
+                      tooltip: context.t('Close'),
+                      onPressed: () => Navigator.pop(dialogContext),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
                   ],
-                );
-              },
+                ),
+                const SizedBox(height: 8),
+                if (rows.isEmpty)
+                  NoticeCard(text: _fieldSummaryEmptyText(kind))
+                else
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: rows.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        return FieldSummaryDetailTile(
+                          row: rows[index],
+                          kind: kind,
+                        );
+                      },
+                    ),
+                  ),
+              ],
             ),
           ),
         ),
@@ -3111,6 +3197,14 @@ class FieldSummaryDetailTile extends StatelessWidget {
     final syncedAt = row['report_synced_at'] as String?;
     final reportEmail = row['report_email'] as String?;
     final status = _reportStatusLabel(row['report_status'] as String?);
+    final statusColor = switch (row['report_status']) {
+      reportStatusSynced => CcColors.green,
+      reportStatusWaitingInternet ||
+      reportStatusSyncing ||
+      reportStatusFailedRetry =>
+        CcColors.orange,
+      _ => CcColors.muted,
+    };
     final dateLabel = switch (kind) {
       FieldSummaryKind.checks => 'Scan date',
       FieldSummaryKind.queued => 'Report date',
@@ -3149,10 +3243,62 @@ class FieldSummaryDetailTile extends StatelessWidget {
             label: 'Confidence',
             value: '${confidence.toStringAsFixed(0)}%',
           ),
-          InfoRow(label: 'Status', value: status),
+          FieldSummaryStatusRow(
+            label: 'Status',
+            value: status,
+            color: statusColor,
+          ),
           if (kind != FieldSummaryKind.checks)
             InfoRow(label: 'Target email', value: reportEmail ?? '---'),
           InfoRow(label: dateLabel, value: dateValue),
+        ],
+      ),
+    );
+  }
+}
+
+class FieldSummaryStatusRow extends StatelessWidget {
+  const FieldSummaryStatusRow({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 96,
+            child: Text(
+              context.t(label),
+              style: const TextStyle(
+                color: CcColors.muted,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              context.t(value),
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                fontSize: 12,
+                color: color,
+              ),
+              softWrap: true,
+            ),
+          ),
         ],
       ),
     );
@@ -3792,6 +3938,9 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
+    final previewTime = _formatHistoryDateTime(
+      DateTime.now().toUtc().toIso8601String(),
+    );
     return ScreenFrame(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3822,7 +3971,6 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                       ? '---'
                       : state.farmerLocation,
                 ),
-                const InfoRow(label: 'Plant part', value: 'Leaf'),
                 InfoRow(label: 'Diagnosis', value: widget.disease),
                 InfoRow(
                   label: 'Confidence',
@@ -3830,6 +3978,7 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                       ? '-'
                       : '${(widget.confidence! * 100).toStringAsFixed(0)}%',
                 ),
+                InfoRow(label: 'Report time', value: previewTime),
                 const InfoRow(label: 'Status', value: 'Ready to send'),
                 InfoRow(
                   label: 'Email',
@@ -3890,15 +4039,20 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                     if (!canSend || !context.mounted) return;
                     setState(() => isSubmitting = true);
                     try {
-                      await DiagnosisRepository.instance.queueReport(
+                      final reportId =
+                          await DiagnosisRepository.instance.queueReport(
                         diagnosisId: widget.diagnosisId,
                         officeEmail: state.officeEmail,
                         consent: state.consentEnabled,
                         settings: state.currentSettings(),
                       );
+                      await state.refreshStats();
                       await state.checkConnectivityAndSync();
                       if (context.mounted) {
-                        final sentNow = state.queuedReportsCount == 0;
+                        final reportStatus = await DiagnosisRepository.instance
+                            .getReportStatus(reportId);
+                        if (!context.mounted) return;
+                        final sentNow = reportStatus == reportStatusSynced;
                         if (sentNow) {
                           await showReportSentDialog(context);
                         } else if (context.mounted) {
@@ -4257,122 +4411,139 @@ class _OfflineQueueScreenState extends State<OfflineQueueScreen> {
     });
   }
 
+  Future<void> _pullToRefresh() async {
+    final state = AppScope.of(context);
+    await state.checkConnectivityAndSync();
+    final nextSummary = DiagnosisRepository.instance.getLatestReportSummary();
+    if (mounted) {
+      setState(() {
+        _summaryFuture = nextSummary;
+      });
+    }
+    await nextSummary;
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return ScreenFrame(
-      child: FutureBuilder<Map<String, Object?>?>(
-        future: _summaryFuture,
-        builder: (context, snapshot) {
-          final summary = snapshot.data;
-          final imagePath = summary?['image_path'] as String?;
-          final disease = '${summary?['disease'] ?? '---'}';
-          final statusLabel = _reportStatusLabel(summary?['status'] as String?);
-          final confidence =
-              ((summary?['confidence'] as num?)?.toDouble() ?? 0) * 100;
-          final farmerName = _summaryValue(summary?['farmer_name']);
-          final farmerLocation = _summaryValue(summary?['farmer_location']);
-          final targetEmail = _summaryValue(summary?['office_email']);
-          final scanDate = _summaryDate(summary?['scan_created_at']);
-          final reportDate = _summaryDate(summary?['report_created_at']);
+      child: RefreshIndicator(
+        onRefresh: _pullToRefresh,
+        child: FutureBuilder<Map<String, Object?>?>(
+          future: _summaryFuture,
+          builder: (context, snapshot) {
+            final summary = snapshot.data;
+            final imagePath = summary?['image_path'] as String?;
+            final disease = '${summary?['disease'] ?? '---'}';
+            final statusLabel =
+                _reportStatusLabel(summary?['status'] as String?);
+            final confidence =
+                ((summary?['confidence'] as num?)?.toDouble() ?? 0) * 100;
+            final farmerName = _summaryValue(summary?['farmer_name']);
+            final farmerLocation = _summaryValue(summary?['farmer_location']);
+            final targetEmail = _summaryValue(summary?['office_email']);
+            final scanDate = _summaryDate(summary?['scan_created_at']);
+            final reportDate = _summaryDate(summary?['report_created_at']);
 
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TopLine(
-                title: 'Report Summary',
-                subtitle: 'Details of the latest reported scan.',
-                pill: state.readinessLabel,
-              ),
-              const SizedBox(height: 16),
-              if (snapshot.connectionState == ConnectionState.waiting)
-                const Expanded(
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (summary == null) ...[
-                const NoticeCard(text: 'No reported scans yet.'),
-                const Spacer(),
-              ] else ...[
-                SectionCard(
-                  title: 'Reported scan',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          ReportSummaryImage(imagePath: imagePath),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              children: [
-                                InfoRow(label: 'Diagnosis', value: disease),
-                                InfoRow(
-                                  label: 'Confidence',
-                                  value: '${confidence.toStringAsFixed(0)}%',
-                                ),
-                                InfoRow(label: 'Status', value: statusLabel),
-                              ],
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                TopLine(
+                  title: 'Report Summary',
+                  subtitle: 'Details of the latest reported scan.',
+                  pill: state.readinessLabel,
+                ),
+                const SizedBox(height: 16),
+                if (snapshot.connectionState == ConnectionState.waiting)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 34),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (summary == null) ...[
+                  const NoticeCard(text: 'No reported scans yet.'),
+                  const SizedBox(height: 260),
+                ] else ...[
+                  SectionCard(
+                    title: 'Reported scan',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            ReportSummaryImage(imagePath: imagePath),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                children: [
+                                  InfoRow(label: 'Diagnosis', value: disease),
+                                  InfoRow(
+                                    label: 'Confidence',
+                                    value: '${confidence.toStringAsFixed(0)}%',
+                                  ),
+                                  InfoRow(label: 'Status', value: statusLabel),
+                                ],
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      InfoRow(label: 'Farmer', value: farmerName),
-                      InfoRow(label: 'Location', value: farmerLocation),
-                      InfoRow(label: 'Target email', value: targetEmail),
-                      InfoRow(label: 'Scan date', value: scanDate),
-                      InfoRow(label: 'Report date', value: reportDate),
-                      const InfoRow(label: 'Saved in', value: 'This phone'),
-                    ],
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        InfoRow(label: 'Farmer', value: farmerName),
+                        InfoRow(label: 'Location', value: farmerLocation),
+                        InfoRow(label: 'Target email', value: targetEmail),
+                        InfoRow(label: 'Scan date', value: scanDate),
+                        InfoRow(label: 'Report date', value: reportDate),
+                        const InfoRow(label: 'Saved in', value: 'This phone'),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                NoticeCard(
-                  text: state.queuedReportsCount == 0
-                      ? 'No reports waiting to send'
-                      : 'Reports will send automatically when internet is available.',
-                ),
-                const Spacer(),
-                if (state.queuedReportsCount > 0) ...[
-                  OutlineAction(
-                    label: isSyncing ? 'Sending now...' : 'Try sending now',
-                    icon: Icons.wifi_rounded,
-                    isLoading: isSyncing,
-                    onTap: isSyncing
-                        ? null
-                        : () async {
-                            setState(() => isSyncing = true);
-                            final before = state.queuedReportsCount;
-                            await state.checkConnectivityAndSync();
-                            if (mounted) setState(() => isSyncing = false);
-                            _refreshSummary();
-                            if (!context.mounted) return;
-                            final sent =
-                                before > 0 && state.queuedReportsCount == 0;
-                            final message = sent
-                                ? 'Report sent successfully.'
-                                : 'Report is still waiting. Please connect to the internet and try again.';
-                            if (sent) {
-                              await showReportSentDialog(context);
-                            } else if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(context.t(message))),
-                              );
-                            }
-                          },
+                  const SizedBox(height: 12),
+                  NoticeCard(
+                    text: state.queuedReportsCount == 0
+                        ? 'No reports waiting to send'
+                        : 'Reports will send automatically when internet is available.',
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 24),
+                  if (state.queuedReportsCount > 0) ...[
+                    OutlineAction(
+                      label: isSyncing ? 'Sending now...' : 'Try sending now',
+                      icon: Icons.wifi_rounded,
+                      isLoading: isSyncing,
+                      onTap: isSyncing
+                          ? null
+                          : () async {
+                              setState(() => isSyncing = true);
+                              final before = state.queuedReportsCount;
+                              await state.checkConnectivityAndSync();
+                              if (mounted) setState(() => isSyncing = false);
+                              _refreshSummary();
+                              if (!context.mounted) return;
+                              final sent =
+                                  before > 0 && state.queuedReportsCount == 0;
+                              final message = sent
+                                  ? 'Report sent successfully.'
+                                  : 'Report is still waiting. Please connect to the internet and try again.';
+                              if (sent) {
+                                await showReportSentDialog(context);
+                              } else if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(context.t(message))),
+                                );
+                              }
+                            },
+                    ),
+                    const SizedBox(height: 10),
+                  ],
                 ],
+                PrimaryButton(
+                  label: 'Back to home',
+                  icon: Icons.home_rounded,
+                  onPressed: () => replaceWith(context, const MainShell()),
+                ),
               ],
-              PrimaryButton(
-                label: 'Back to home',
-                icon: Icons.home_rounded,
-                onPressed: () => replaceWith(context, const MainShell()),
-              ),
-            ],
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
@@ -4433,83 +4604,106 @@ class _HistoryScreenState extends State<HistoryScreen> {
     _future = DiagnosisRepository.instance.getRecentDiagnoses();
   }
 
+  Future<void> _pullToRefresh() async {
+    final state = AppScope.of(context);
+    await state.checkConnectivityAndSync();
+    final nextRows = DiagnosisRepository.instance.getRecentDiagnoses();
+    if (mounted) {
+      setState(() {
+        _future = nextRows;
+      });
+    }
+    await nextRows;
+  }
+
   @override
   Widget build(BuildContext context) {
     return ScreenFrame(
-      child: FutureBuilder<List<Map<String, Object?>>>(
-        future: _future,
-        builder: (context, snapshot) {
-          final rows = snapshot.data;
-          return SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const TopLine(
-                  title: 'History',
-                  subtitle: 'Saved scans and report status on this phone.',
-                ),
-                const SizedBox(height: 16),
-                if (snapshot.connectionState == ConnectionState.waiting)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 24),
-                    child: Center(child: CircularProgressIndicator()),
-                  )
-                else if (rows == null || rows.isEmpty)
-                  SectionCard(
-                    title: 'No scans yet',
-                    child: Text(
-                        context.t('Scan a leaf from Home to see it here.')),
-                  )
-                else
-                  for (final row in rows)
-                    HistoryTile(
-                      disease: row['disease'] as String,
-                      status:
-                          _reportStatusLabel(row['report_status'] as String?),
-                      date: _formatHistoryDate(row['created_at'] as String),
-                      confidence:
-                          '${(((row['confidence'] as num).toDouble()) * 100).toStringAsFixed(0)}%',
-                      onRetry: _canRetryHistoryReport(row)
-                          ? () async {
-                              final diagnosisId = row['id'] as int?;
-                              if (diagnosisId == null) return;
-                              final state = AppScope.of(context);
-                              await DiagnosisRepository.instance
-                                  .markDiagnosisReportForRetry(diagnosisId);
-                              await state.checkConnectivityAndSync();
-                              await state.refreshStats();
-                              if (!mounted) return;
+      child: RefreshIndicator(
+        onRefresh: _pullToRefresh,
+        child: FutureBuilder<List<Map<String, Object?>>>(
+          future: _future,
+          builder: (context, snapshot) {
+            final rows = snapshot.data;
+            return SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const TopLine(
+                    title: 'History',
+                    subtitle: 'Saved scans and report status on this phone.',
+                  ),
+                  const SizedBox(height: 16),
+                  if (snapshot.connectionState == ConnectionState.waiting)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else if (rows == null || rows.isEmpty)
+                    SectionCard(
+                      title: 'No scans yet',
+                      child: Text(
+                          context.t('Scan a leaf from Home to see it here.')),
+                    )
+                  else
+                    for (final row in rows)
+                      HistoryTile(
+                        disease: row['disease'] as String,
+                        status:
+                            _reportStatusLabel(row['report_status'] as String?),
+                        date: _formatHistoryDate(row['created_at'] as String),
+                        confidence:
+                            '${(((row['confidence'] as num).toDouble()) * 100).toStringAsFixed(0)}%',
+                        onRetry: _canRetryHistoryReport(row)
+                            ? () async {
+                                final diagnosisId = row['id'] as int?;
+                                final reportId = row['report_id'] as int?;
+                                if (diagnosisId == null) return;
+                                final state = AppScope.of(context);
+                                await DiagnosisRepository.instance
+                                    .markDiagnosisReportForRetry(diagnosisId);
+                                await state.checkConnectivityAndSync();
+                                await state.refreshStats();
+                                if (!mounted) return;
+                                setState(() {
+                                  _future = DiagnosisRepository.instance
+                                      .getRecentDiagnoses();
+                                });
+                                if (!context.mounted) return;
+                                final reportStatus = reportId == null
+                                    ? null
+                                    : await DiagnosisRepository.instance
+                                        .getReportStatus(reportId);
+                                if (!context.mounted) return;
+                                final message = reportStatus ==
+                                        reportStatusSynced
+                                    ? 'Report sent successfully.'
+                                    : 'No internet. Your report is saved and will send later.';
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(content: Text(context.t(message))),
+                                );
+                              }
+                            : null,
+                        onTap: () => showHistoryDetailSheet(
+                          context,
+                          row,
+                          onDeleted: () async {
+                            await AppScope.of(context).refreshStats();
+                            if (mounted) {
                               setState(() {
                                 _future = DiagnosisRepository.instance
                                     .getRecentDiagnoses();
                               });
-                              if (!context.mounted) return;
-                              final message = state.queuedReportsCount == 0
-                                  ? 'Report sent successfully.'
-                                  : 'No internet. Your report is saved and will send later.';
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(content: Text(context.t(message))),
-                              );
                             }
-                          : null,
-                      onTap: () => showHistoryDetailSheet(
-                        context,
-                        row,
-                        onDeleted: () async {
-                          await AppScope.of(context).refreshStats();
-                          if (mounted) {
-                            setState(() {
-                              _future = DiagnosisRepository.instance
-                                  .getRecentDiagnoses();
-                            });
-                          }
-                        },
+                          },
+                        ),
                       ),
-                    ),
-              ],
-            ),
-          );
-        },
+                ],
+              ),
+            );
+          },
+        ),
       ),
     );
   }
@@ -4525,6 +4719,7 @@ void showHistoryDetailSheet(
   final confidence = ((row['confidence'] as num?)?.toDouble() ?? 0) * 100;
   final createdAt = row['created_at'] as String? ?? '';
   final imagePath = row['image_path'] as String?;
+  final reportId = row['report_id'] as int?;
   final reportStatus = _reportStatusLabel(row['report_status'] as String?);
   final hasQueuedReport = row['report_status'] == reportStatusWaitingInternet ||
       row['report_status'] == reportStatusFailedRetry ||
@@ -4687,7 +4882,12 @@ void showHistoryDetailSheet(
                       Navigator.pop(sheetContext);
                     }
                     if (context.mounted) {
-                      final message = appState.queuedReportsCount == 0
+                      final latestStatus = reportId == null
+                          ? null
+                          : await DiagnosisRepository.instance
+                              .getReportStatus(reportId);
+                      if (!context.mounted) return;
+                      final message = latestStatus == reportStatusSynced
                           ? 'Report sent successfully.'
                           : 'Report is still waiting. Please connect to the internet and try again.';
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -5123,31 +5323,49 @@ class _BarangayReportsScreenState extends State<BarangayReportsScreen> {
     _future = DiagnosisRepository.instance.fetchCommunityReports();
   }
 
+  Future<void> _refreshReports() async {
+    final state = AppScope.of(context);
+    await state.checkConnectivityAndSync();
+    final nextReports = state.isOnline
+        ? DiagnosisRepository.instance.fetchCommunityReports()
+        : Future<List<CommunityReport>>.value(const <CommunityReport>[]);
+    if (mounted) {
+      setState(() {
+        _selectedReport = null;
+        _future = nextReports;
+      });
+    }
+    await nextReports;
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     if (!state.isOnline) {
       return ScreenFrame(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TopLine(
-              title: 'Community reports',
-              subtitle:
-                  'Reports submitted by other farmers using CalamansiCare.',
-              pill: state.readinessLabel,
-            ),
-            const SizedBox(height: 16),
-            const NoticeCard(
-              text: 'Please connect to the internet to see barangay reports.',
-            ),
-            const Spacer(),
-            PrimaryButton(
-              label: 'Back to home',
-              icon: Icons.home_rounded,
-              onPressed: () => replaceWith(context, const MainShell()),
-            ),
-          ],
+        child: RefreshIndicator(
+          onRefresh: _refreshReports,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              TopLine(
+                title: 'Community reports',
+                subtitle:
+                    'Reports submitted by other farmers using CalamansiCare.',
+                pill: state.readinessLabel,
+              ),
+              const SizedBox(height: 16),
+              const NoticeCard(
+                text: 'Please connect to the internet to see barangay reports.',
+              ),
+              const SizedBox(height: 280),
+              PrimaryButton(
+                label: 'Back to home',
+                icon: Icons.home_rounded,
+                onPressed: () => replaceWith(context, const MainShell()),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -5200,18 +5418,20 @@ class _BarangayReportsScreenState extends State<BarangayReportsScreen> {
                 child: snapshot.connectionState == ConnectionState.waiting
                     ? const Center(child: CircularProgressIndicator())
                     : reports.isEmpty
-                        ? const NoticeCard(
-                            text:
-                                'No barangay reports yet. Please try again later.',
+                        ? RefreshIndicator(
+                            onRefresh: _refreshReports,
+                            child: ListView(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              children: const [
+                                NoticeCard(
+                                  text:
+                                      'No barangay reports yet. Please try again later.',
+                                ),
+                              ],
+                            ),
                           )
                         : RefreshIndicator(
-                            onRefresh: () async {
-                              setState(() {
-                                _future = DiagnosisRepository.instance
-                                    .fetchCommunityReports();
-                              });
-                              await _future;
-                            },
+                            onRefresh: _refreshReports,
                             child: ListView.builder(
                               itemCount: reports.length,
                               itemBuilder: (context, index) {
@@ -5254,7 +5474,7 @@ class _BarangayReportsScreenState extends State<BarangayReportsScreen> {
 
 bool isLowRiskCommunityReport(CommunityReport report) {
   final disease = report.disease.toLowerCase();
-  return disease.contains('healthy') || disease.contains('nutrient');
+  return disease.contains('healthy');
 }
 
 bool isHighRiskCommunityReport(CommunityReport report) {
@@ -5321,6 +5541,12 @@ class BarangayReportDetailScreen extends StatelessWidget {
                         InfoRow(
                           label: 'Status',
                           value: communityRiskLabel(report),
+                        ),
+                        InfoRow(
+                          label: 'Reported at',
+                          value: report.reportedAt.trim().isEmpty
+                              ? '---'
+                              : _formatHistoryDateTime(report.reportedAt),
                         ),
                       ],
                     ),
@@ -6153,12 +6379,12 @@ class DiseaseTranslations {
       AppText.cebuano:
           'Fungal disease nga mahimong makahatag ug brown spots sa dahon ug bunga, ug pagkalagas sa dahon. Mas mograbe kini kung basa ang panahon ug dasok ang canopy.',
     },
-    'A nutrition problem, not an infection. Leaves may yellow or look weak when the tree lacks nutrients, has root stress, or has soil problems.':
+    'A black surface mold that grows on sticky honeydew from insects like scale, aphids, mealybugs, or whiteflies. It can cover leaves and fruit and reduce sunlight reaching the leaf.':
         {
       AppText.tagalog:
-          'Problema sa nutrisyon ito, hindi impeksyon. Maaaring manilaw o manghina ang dahon kapag kulang sa sustansya, stressed ang ugat, o may problema ang lupa.',
+          'Itim na amag sa ibabaw ng dahon o bunga na tumutubo sa malagkit na honeydew mula sa peste tulad ng scale, aphids, mealybugs, o whiteflies. Maaari nitong takpan ang dahon at bunga at bawasan ang sikat ng araw na umaabot sa dahon.',
       AppText.cebuano:
-          'Problema kini sa nutrisyon, dili impeksyon. Mahimong mo-yellow o maluya ang dahon kung kulang sa sustansya, stressed ang gamot, o naay problema sa yuta.',
+          'Itom nga amag sa ibabaw sa dahon o bunga nga motubo sa sticky honeydew gikan sa peste sama sa scale, aphids, mealybugs, o whiteflies. Mahimo niini matabunan ang dahon ug bunga ug maminusan ang adlaw nga maabot sa dahon.',
     },
     'The condition needs a clearer photo or field checking before making a treatment decision.':
         {
@@ -6202,9 +6428,9 @@ class DiseaseTranslations {
       AppText.tagalog: 'Brown Spot',
       AppText.cebuano: 'Brown Spot',
     },
-    'Nutrient Deficiency': {
-      AppText.tagalog: 'Kakulangan sa nutrisyon',
-      AppText.cebuano: 'Kulang sa nutrisyon',
+    'Sooty Mold': {
+      AppText.tagalog: 'Sooty Mold',
+      AppText.cebuano: 'Sooty Mold',
     },
     'Description': {
       AppText.tagalog: 'Paglalarawan',
@@ -6222,9 +6448,9 @@ class DiseaseTranslations {
       AppText.tagalog: 'Fungal disease',
       AppText.cebuano: 'Fungal disease',
     },
-    'Nutritional condition': {
-      AppText.tagalog: 'Kondisyon sa nutrisyon',
-      AppText.cebuano: 'Kondisyon sa nutrisyon',
+    'Surface fungal growth': {
+      AppText.tagalog: 'Amag sa ibabaw ng dahon',
+      AppText.cebuano: 'Amag sa ibabaw sa dahon',
     },
     'Needs field confirmation': {
       AppText.tagalog: 'Kailangan ng field confirmation',
@@ -6426,33 +6652,33 @@ class DiseaseTranslations {
       AppText.cebuano:
           'Bantayi ang bag-ong tubo ug batan-ong bunga, pamenosi ang dugay nga kabasa sa dahon, ug tangtanga ang diseased debris sa uma.',
     },
-    'Check soil and fertiliser practice, then correct nutrients with guidance from an agriculture technician.':
+    'Check for honeydew insects such as scale, aphids, mealybugs, or whiteflies, then control the insects causing the mold.':
         {
       AppText.tagalog:
-          'Suriin ang lupa at paraan ng fertilizer, pagkatapos ay ayusin ang nutrisyon sa gabay ng agriculture technician.',
+          'Suriin kung may peste na gumagawa ng honeydew tulad ng scale, aphids, mealybugs, o whiteflies, pagkatapos kontrolin ang pesteng sanhi ng amag.',
       AppText.cebuano:
-          'Susiha ang yuta ug pamaagi sa fertilizer, unya ayuha ang nutrisyon uban sa giya sa agriculture technician.',
+          'Susiha kung naay peste nga naghimo ug honeydew sama sa scale, aphids, mealybugs, o whiteflies, unya kontrola ang peste nga hinungdan sa amag.',
     },
-    'Do not use insecticide or fungicide for nutrient deficiency. Use soil or leaf testing, correct soil pH if needed, and apply the proper citrus fertilizer or micronutrient product.':
+    'Sooty mold grows on sticky honeydew, so spraying fungicide alone is not the main fix. Ask a technician to identify the insect pest, then use the correct labeled insect control only when needed.':
         {
       AppText.tagalog:
-          'Huwag gumamit ng insecticide o fungicide para sa nutrient deficiency. Gumamit ng soil o leaf testing, ayusin ang soil pH kung kailangan, at maglagay ng tamang citrus fertilizer o micronutrient product.',
+          'Tumutubo ang sooty mold sa malagkit na honeydew, kaya hindi sapat ang fungicide lang. Magpatulong sa technician para tukuyin ang peste, pagkatapos gumamit lamang ng tamang labeled insect control kung kailangan.',
       AppText.cebuano:
-          'Ayaw gamit ug insecticide o fungicide para sa nutrient deficiency. Gamit ug soil o leaf testing, ayuha ang soil pH kung kinahanglan, ug butangi ug sakto nga citrus fertilizer o micronutrient product.',
+          'Motubo ang sooty mold sa sticky honeydew, busa dili igo ang fungicide lang. Pangayo ug tabang sa technician aron mailhan ang peste, unya gamit lang ug sakto nga labeled insect control kung kinahanglan.',
     },
-    'Improve soil health with compost, mulch kept away from the trunk, proper watering, drainage correction, and organic citrus fertilizer where available.':
+    'Wash or wipe heavy black coating from leaves and fruit where practical, prune crowded branches for airflow, control ants, and use insecticidal soap or horticultural oil only when allowed and advised.':
         {
       AppText.tagalog:
-          'Pagandahin ang lupa gamit ang compost, mulch na malayo sa puno, tamang dilig, pag-ayos ng drainage, at organic citrus fertilizer kung mayroon.',
+          'Hugasan o punasan ang makapal na itim na patong sa dahon at bunga kung kaya, putulin ang siksik na sanga para sa hangin, kontrolin ang langgam, at gumamit lamang ng insecticidal soap o horticultural oil kung pinapayagan at ipinayo.',
       AppText.cebuano:
-          'Paayosa ang yuta gamit ang compost, mulch nga layo sa punoan, sakto nga pagbisbis, pag-ayo sa drainage, ug organic citrus fertilizer kung naa.',
+          'Hugasi o pahiri ang baga nga itom nga patong sa dahon ug bunga kung mahimo, putla ang dasok nga sanga para sa airflow, kontrola ang hulmigas, ug gamit lang ug insecticidal soap o horticultural oil kung tugot ug gitambagan.',
     },
-    'Avoid overwatering, maintain drainage, fertilize on schedule, and inspect roots and soil pH when yellowing continues.':
+    'Inspect the underside of leaves and young shoots weekly for sap-sucking insects, manage ants that protect them, and keep the canopy open so pests are easier to see.':
         {
       AppText.tagalog:
-          'Iwasan ang sobrang dilig, panatilihin ang drainage, mag-fertilize sa tamang schedule, at suriin ang ugat at soil pH kung tuloy ang paninilaw.',
+          'Suriin linggo-linggo ang ilalim ng dahon at bagong tubo para sa pesteng sumisipsip ng dagta, kontrolin ang langgam na nagpoprotekta sa peste, at panatilihing bukas ang canopy para madaling makita ang peste.',
       AppText.cebuano:
-          'Likayi ang sobra nga pagbisbis, panatilihing maayo ang drainage, pag-fertilize sa sakto nga schedule, ug susiha ang gamot ug soil pH kung padayon ang pag-yellow.',
+          'Susiha kada semana ang ilalom sa dahon ug bag-ong tubo para sa pesteng mosuyop ug duga, kontrola ang hulmigas nga nagpanalipod sa peste, ug panatilihing bukas ang canopy aron dali makita ang peste.',
     },
     'Take another clear leaf photo and ask an agriculture technician to inspect the tree if symptoms spread.':
         {
@@ -7415,8 +7641,9 @@ void showLanguageSheet(BuildContext context) {
                   color: CcColors.green,
                 ),
                 title: Text(language),
-                onTap: () {
-                  state.setLanguage(language);
+                onTap: () async {
+                  await state.setLanguage(language);
+                  if (!context.mounted) return;
                   Navigator.pop(context);
                 },
               ),
@@ -7446,8 +7673,9 @@ void showEmailDialog(BuildContext context) {
             child: Text(context.t('Cancel')),
           ),
           FilledButton(
-            onPressed: () {
-              state.setEmail(controller.text.trim());
+            onPressed: () async {
+              await state.setEmail(controller.text.trim());
+              if (!context.mounted) return;
               Navigator.pop(context);
             },
             child: Text(context.t('Save')),
@@ -7477,11 +7705,12 @@ void showNameDialog(BuildContext context) {
             child: Text(context.t('Cancel')),
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: () async {
               final value = controller.text.trim();
               if (value.isNotEmpty) {
-                state.setFarmerName(value);
+                await state.setFarmerName(value);
               }
+              if (!context.mounted) return;
               Navigator.pop(context);
             },
             child: Text(context.t('Save')),
@@ -7654,11 +7883,12 @@ void showLocationSheet(BuildContext context) {
                       PrimaryButton(
                         label: 'Save location',
                         icon: Icons.check_rounded,
-                        onPressed: () {
+                        onPressed: () async {
                           final value = controller.text.trim();
                           if (value.isNotEmpty) {
-                            state.setFarmerLocation(value);
+                            await state.setFarmerLocation(value);
                           }
+                          if (!sheetContext.mounted) return;
                           Navigator.pop(sheetContext);
                         },
                       ),

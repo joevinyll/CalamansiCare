@@ -27,9 +27,13 @@ not by whatever order a person expects):
 6. Healthy Fruit
 7. Healthy Leaf
 8. Melanose
-9. Nutrient Deficiency
+9. Sooty Mold
 
 If you ever retrain or re-export the model, re-check `class_names.json` and
 update `diseaseLabels` in `lib/main.dart` to match exactly, in the same
 order — a mismatch here silently relabels every prediction as the wrong
 disease without throwing any error.
+
+Note: the app now displays the ninth condition as Sooty Mold. For production
+accuracy, retrain/re-export the TFLite model with Sooty Mold images in the
+ninth class instead of relying on a relabeled older class.
