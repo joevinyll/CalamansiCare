@@ -3,10 +3,12 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:device_info_plus/device_info_plus.dart';
-import 'package:image/image.dart' as img;
 import 'package:path/path.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'image_security.dart';
+import 'secure_auth_storage.dart';
 
 const reportStatusWaitingInternet = 'waiting_internet';
 const reportStatusSyncing = 'syncing';
@@ -26,6 +28,7 @@ class DiagnosisRepository {
   Database? _database;
   SupabaseClient? _supabase;
   Future<void>? _initialiseFuture;
+  SecureAuthStorage? _authStorage;
 
   static const _supabaseUrl = String.fromEnvironment('SUPABASE_URL');
   static const _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
@@ -40,11 +43,13 @@ class DiagnosisRepository {
   }
 
   Future<void> _initialise() async {
+    var freshInstall = false;
     final databasePath = await getDatabasesPath();
     _database ??= await openDatabase(
       join(databasePath, 'calamansi_care.db'),
       version: 6,
       onCreate: (db, _) async {
+        freshInstall = true;
         await _createSchema(db);
       },
       onUpgrade: (db, oldVersion, _) async {
@@ -72,11 +77,24 @@ class DiagnosisRepository {
     await _upgradeQueuedReportsForCoordinates(_database!);
 
     if (_supabaseUrl.isNotEmpty && _supabaseAnonKey.isNotEmpty) {
+      final sessionKey =
+          'sb-${Uri.parse(_supabaseUrl).host.split('.').first}-auth-token';
+      _authStorage = SecureAuthStorage(
+          key: sessionKey,
+          legacy: SharedPreferencesLocalStorage(persistSessionKey: sessionKey),
+          freshInstall: freshInstall,
+          legacyPkce: SharedPreferencesGotrueAsyncStorage());
       await Supabase.initialize(
         url: _supabaseUrl,
         publishableKey: _supabaseAnonKey,
-        authOptions: const FlutterAuthClientOptions(
+        authOptions: FlutterAuthClientOptions(
           authFlowType: AuthFlowType.pkce,
+          localStorage: _authStorage,
+          pkceAsyncStorage: SecurePkceStorage(
+            legacy: SharedPreferencesLocalStorage(
+              persistSessionKey: '$sessionKey-code-verifier',
+            ),
+          ),
         ),
       );
       _supabase = Supabase.instance.client;
@@ -229,7 +247,10 @@ class DiagnosisRepository {
     final db = await _db;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.transaction((txn) async {
-      for (final entry in settings.toMap().entries) {
+      for (final entry in {
+        ...settings.toMap(),
+        'account_user_id': currentUser?.id ?? '',
+      }.entries) {
         await txn.insert(
           'app_settings',
           {
@@ -247,8 +268,27 @@ class DiagnosisRepository {
     }
   }
 
+  Future<bool> hasLocalAccountData() async {
+    final db = await _db;
+    final account = await db.query('app_settings',
+        columns: ['key'],
+        where: "key = 'account_user_id' AND value != ''",
+        limit: 1);
+    if (account.isNotEmpty) return true;
+    if ((await db.query('queued_reports',
+            columns: ['id'], where: 'user_id IS NOT NULL', limit: 1))
+        .isNotEmpty) {
+      return true;
+    }
+    return (await db.query('diagnoses',
+            columns: ['id'], where: 'user_id IS NOT NULL', limit: 1))
+        .isNotEmpty;
+  }
+
   Future<void> clearLocalAccountData(AppSettings settingsToKeep) async {
     final db = await _db;
+    final images = await db.query('diagnoses', columns: ['image_path']);
+    await _deleteCachedDiagnosisImages(images);
     final now = DateTime.now().toUtc().toIso8601String();
     await db.transaction((txn) async {
       await txn.delete('queued_reports');
@@ -369,7 +409,11 @@ class DiagnosisRepository {
 
   Future<void> signOut() async {
     final client = _requireSupabase();
-    await client.auth.signOut();
+    try {
+      await client.auth.signOut();
+    } finally {
+      await _authStorage?.removePersistedSession();
+    }
   }
 
   Future<void> upsertFarmerProfile(AppSettings settings) async {
@@ -444,6 +488,7 @@ class DiagnosisRepository {
         .timeout(const Duration(seconds: 20)) as List<dynamic>;
     var restored = 0;
     for (final item in rows) {
+      if (currentUser?.id != user.id) return restored;
       final row = Map<String, dynamic>.from(item as Map);
       final localReportId = '${row['local_report_id'] ?? ''}';
       if (localReportId.trim().isEmpty) continue;
@@ -518,6 +563,21 @@ class DiagnosisRepository {
       'user_id': _supabase?.auth.currentUser?.id,
       'created_at': DateTime.now().toUtc().toIso8601String(),
     });
+  }
+
+  Future<String> cacheDiagnosisImage(String sourcePath) async {
+    final source = File(sourcePath);
+    if (!await source.exists() || await source.length() > maxSourceImageBytes) {
+      throw const FormatException(
+          'Image is unavailable or exceeds the size limit.');
+    }
+    final bytes = encodeReportImage(await source.readAsBytes());
+    final cache = await getTemporaryDirectory();
+    final filename =
+        'calamansi-${Random.secure().nextInt(0x7fffffff).toRadixString(16)}.webp';
+    return (await File(join(cache.path, filename))
+            .writeAsBytes(bytes, flush: true))
+        .path;
   }
 
   Future<int> queueReport({
@@ -689,22 +749,10 @@ class DiagnosisRepository {
   }
 
   Future<Uint8List> _compressReportImage(File file) async {
-    final bytes = await file.readAsBytes();
-    final decoded = img.decodeImage(bytes);
-    if (decoded == null) return bytes;
-
-    const maxSide = 1280;
-    final longestSide = max(decoded.width, decoded.height);
-    final resized = longestSide > maxSide
-        ? img.copyResize(
-            decoded,
-            width: decoded.width >= decoded.height ? maxSide : null,
-            height: decoded.height > decoded.width ? maxSide : null,
-            interpolation: img.Interpolation.average,
-          )
-        : decoded;
-
-    return img.encodeWebP(resized);
+    if (await file.length() > maxSourceImageBytes) {
+      throw const FormatException('Image exceeds the size limit.');
+    }
+    return encodeReportImage(await file.readAsBytes());
   }
 
   Future<List<CommunityReport>> fetchCommunityReports() async {
@@ -836,6 +884,9 @@ class DiagnosisRepository {
 
   Future<void> deleteDiagnosis(int diagnosisId) async {
     final db = await _db;
+    final images = await db.query('diagnoses',
+        columns: ['image_path'], where: 'id = ?', whereArgs: [diagnosisId]);
+    await _deleteCachedDiagnosisImages(images);
     await db.transaction((txn) async {
       await txn.delete(
         'queued_reports',
@@ -850,14 +901,26 @@ class DiagnosisRepository {
     });
   }
 
+  Future<void> _deleteCachedDiagnosisImages(
+      List<Map<String, Object?>> rows) async {
+    final paths =
+        rows.map((row) => row['image_path']).whereType<String>().toList();
+    if (paths.isEmpty) return;
+    try {
+      await deleteCachedImages(paths, await getTemporaryDirectory());
+    } on FileSystemException {
+      // Database cleanup must continue if the operating system evicts the cache.
+    }
+  }
+
   /// Small aggregate used by the Home screen: how many reports are still
   /// waiting to sync, and the confidence of the most recent scan. Called
   /// again after every new scan/queue/sync so the Home cards stay current.
   Future<HomeStats> getHomeStats() async {
     final db = await _db;
     final userId = _supabase?.auth.currentUser?.id;
-    final diagnosisFilter = userId == null ? '1 = 1' : 'user_id = ?';
-    final reportFilter = userId == null ? '1 = 1' : 'user_id = ?';
+    final diagnosisFilter = userId == null ? 'user_id IS NULL' : 'user_id = ?';
+    final reportFilter = userId == null ? 'user_id IS NULL' : 'user_id = ?';
     final userArgs = userId == null ? const <Object?>[] : <Object?>[userId];
 
     final checksCountRows = await db.rawQuery(

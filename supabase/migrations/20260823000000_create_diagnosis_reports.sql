@@ -30,11 +30,7 @@ create index if not exists diagnosis_reports_reported_at_idx
 alter table public.diagnosis_reports enable row level security;
 
 drop policy if exists "Anon can submit diagnosis reports" on public.diagnosis_reports;
-create policy "Anon can submit diagnosis reports"
-  on public.diagnosis_reports
-  for insert
-  to anon
-  with check (true);
+-- Writes are enabled by owner-scoped policies in auth_setup.sql.
 
 -- Uncomment and adapt this once you have authenticated agriculture-office
 -- accounts (e.g. via Supabase Auth) and want them to read submitted reports:

@@ -18,9 +18,14 @@ type ReportRow = {
   reported_at: string | null;
 };
 
-Deno.serve(async (req) => {
+export async function handleRequest(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
+  }
+  if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
+  const authorization = req.headers.get("Authorization");
+  if (!authorization?.match(/^Bearer \S+$/i)) {
+    return json({ error: "Authentication required." }, 401);
   }
 
   try {
@@ -40,35 +45,44 @@ Deno.serve(async (req) => {
       return json({ error: "Missing function secrets." }, 500);
     }
 
-    const body = await req.json().catch(() => ({}));
-    const localReportId = `${body.local_report_id ?? ""}`.trim();
-    if (!localReportId) {
+    // Validate the caller with Auth; never trust locally decoded JWT claims.
+    const userResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: { apikey: serviceRoleKey, Authorization: authorization },
+    });
+    if (!userResponse.ok) return json({ error: "Authentication required." }, 401);
+    const rawBody = await req.text();
+    if (rawBody.length > 2048) return json({ error: "Request too large." }, 413);
+    const body = JSON.parse(rawBody);
+    const localReportId = body?.local_report_id;
+    if (typeof localReportId !== "string" || !/^[A-Za-z0-9_-]{1,200}$/.test(localReportId)) {
       return json({ error: "local_report_id is required." }, 400);
     }
 
     const reportResponse = await fetch(
-      `${supabaseUrl}/rest/v1/diagnosis_reports?local_report_id=eq.${encodeURIComponent(
-        localReportId,
-      )}&select=local_report_id,office_email,disease,confidence,farmer_name,farmer_location,device_signature,image_url,reported_at`,
+      `${supabaseUrl}/rest/v1/rpc/claim_report_email`,
       {
+        method: "POST",
         headers: {
           apikey: serviceRoleKey,
-          Authorization: `Bearer ${serviceRoleKey}`,
+          Authorization: authorization,
+          "Content-Type": "application/json",
         },
+        body: JSON.stringify({ report_id: localReportId }),
       },
     );
 
     if (!reportResponse.ok) {
-      const error = await reportResponse.text();
-      await markEmailStatus(supabaseUrl, serviceRoleKey, localReportId, "failed", error);
-      return json({ error }, 500);
+      return json({ error: "Unable to authorize report delivery." }, 503);
     }
 
-    const rows = (await reportResponse.json()) as ReportRow[];
-    const report = rows[0];
-    if (!report) {
-      return json({ error: "Report not found." }, 404);
-    }
+    const claim = await reportResponse.json();
+    if (claim.status === "already_claimed") return json({ ok: true, status: "already_claimed" });
+    if (claim.status === "rate_limited") return json({ error: "Delivery limit reached." }, 429);
+    if (claim.status !== "claimed" || !claim.report) return json({ error: "Report unavailable." }, 404);
+    const report = claim.report as ReportRow;
+    // Only embed images from this project's public report bucket. HTML escaping
+    // alone does not validate a URL's scheme or destination.
+    report.image_url = approvedImageUrl(report.image_url, supabaseUrl);
 
     if (!report.office_email) {
       await markEmailStatus(
@@ -114,17 +128,31 @@ Deno.serve(async (req) => {
         serviceRoleKey,
         localReportId,
         "failed",
-        emailResult.error,
+        "Email provider rejected delivery. Operator review required.",
       );
-      return json({ error: emailResult.error }, 500);
+      return json({ error: "Email delivery failed. Operator review required." }, 502);
     }
 
     await markEmailStatus(supabaseUrl, serviceRoleKey, localReportId, "sent", null);
-    return json({ ok: true, provider: emailResult.provider, result: emailResult.result });
-  } catch (error) {
-    return json({ error: `${error}` }, 500);
+    return json({ ok: true, provider: emailResult.provider });
+  } catch (_) {
+    return json({ error: "Unable to deliver report." }, 500);
   }
-});
+}
+
+if (import.meta.main) Deno.serve(handleRequest);
+
+export function approvedImageUrl(value: string | null, supabaseUrl: string): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    const base = new URL(supabaseUrl);
+    return url.protocol === "https:" && url.origin === base.origin &&
+        !url.username && !url.password &&
+        url.pathname.startsWith("/storage/v1/object/public/report-images/reports/")
+      ? url.href : null;
+  } catch { return null; }
+}
 
 type EmailSendResult =
   | { ok: true; provider: string; result: unknown }
@@ -246,7 +274,7 @@ async function sendWithResend({
   return { ok: true, provider: "resend", result: safeJson(text) };
 }
 
-function buildReportHtml(report: ReportRow, confidencePercent: number) {
+export function buildReportHtml(report: ReportRow, confidencePercent: number) {
   const image = report.image_url
     ? `<p><strong>Image:</strong><br><a href="${escapeHtml(report.image_url)}">View report image</a></p><img src="${escapeHtml(report.image_url)}" alt="Calamansi report image" style="max-width:520px;width:100%;border-radius:12px;border:1px solid #dfe8dd;" />`
     : "<p><strong>Image:</strong> No uploaded image.</p>";
@@ -257,7 +285,7 @@ function buildReportHtml(report: ReportRow, confidencePercent: number) {
       <p>A new calamansi disease report was submitted.</p>
       <table cellpadding="8" cellspacing="0" style="border-collapse:collapse;">
         <tr><td><strong>Farmer</strong></td><td>${escapeHtml(report.farmer_name ?? "-")}</td></tr>
-        <tr><td><strong>Location</strong></td><td>${escapeHtml(report.farmer_location ?? "-")}</td></tr>
+        <tr><td><strong>City / municipality</strong></td><td>${escapeHtml(cityOnlyReportLocation(report.farmer_location))}</td></tr>
         <tr><td><strong>Disease</strong></td><td>${escapeHtml(report.disease)}</td></tr>
         <tr><td><strong>Confidence</strong></td><td>${confidencePercent}%</td></tr>
         <tr><td><strong>Device</strong></td><td>${escapeHtml(report.device_signature ?? "-")}</td></tr>
@@ -266,6 +294,17 @@ function buildReportHtml(report: ReportRow, confidencePercent: number) {
       ${image}
     </div>
   `;
+}
+
+export function cityOnlyReportLocation(location: string | null): string {
+  if (!location?.trim()) return "General area";
+
+  const parts = location.split(",").map((part) => part.trim()).filter(Boolean);
+  const city = parts.find((part) => /^[\p{L}][\p{L} .-]* City$/iu.test(part));
+  if (city) return city;
+
+  const municipality = parts.find((part) => /^Bansalan$/iu.test(part));
+  return municipality ?? "General area";
 }
 
 async function markEmailStatus(

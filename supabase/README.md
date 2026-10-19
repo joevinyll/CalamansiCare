@@ -61,6 +61,14 @@ Run `auth_setup.sql` in the Supabase SQL Editor. This adds:
 - community report risk labels
 - storage policies for signed-in uploads
 
+After the original setup scripts have run, apply the migrations in
+`supabase/migrations/` in timestamp order. They redact public community
+identities and coordinates, restrict image writes to their owner, remove
+legacy anonymous table access, and install the server-side email claim
+ledger. The report owner can enter the recipient email address. Ownership,
+consent, replay, and rate-limit checks are enforced, but the recipient is not
+verified as an official barangay office.
+
 In the Supabase dashboard, go to **Authentication → Providers**:
 
 - Enable **Email** for email/password sign up and forgot password.
@@ -126,6 +134,9 @@ email during signup.
 `RESEND_API_KEY` is still supported as a fallback, but Resend testing only
 sends to the account owner's email unless you verify a domain.
 
-Deploy the Edge Function in `functions/send-report-email`. You can keep JWT
-verification disabled because the function checks the report record from
-Supabase and only sends data already stored by the app.
+Deploy the Edge Function in `functions/send-report-email` with gateway JWT
+verification enabled. The function also validates each token with Supabase
+Auth and calls the ownership, consent, rate-limit, and replay checks in
+`claim_report_email` before accessing provider credentials. The recipient is
+the address entered on the report and is not independently verified as an
+official office address.
