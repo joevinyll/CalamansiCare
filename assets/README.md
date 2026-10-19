@@ -15,7 +15,7 @@ dividing by 255 in the app would double-normalize the input). Rebuild the
 app after replacing the model file.
 
 The bundled model has nine output classes in this order (from `class_names.json`
-exported alongside `CalamansiCare_MobileNetV2_9Class.keras` — this is the authoritative
+exported alongside `CalamansiCare_MobileNetV2_9Class_320_SootyMold.tflite` — this is the authoritative
 source, since Keras assigns class indices by sorting training folder names,
 not by whatever order a person expects):
 
@@ -34,6 +34,6 @@ update `diseaseLabels` in `lib/main.dart` to match exactly, in the same
 order — a mismatch here silently relabels every prediction as the wrong
 disease without throwing any error.
 
-Note: the app now displays the ninth condition as Sooty Mold. For production
-accuracy, retrain/re-export the TFLite model with Sooty Mold images in the
-ninth class instead of relying on a relabeled older class.
+This bundled model was trained at 320×320. The app reads its input tensor size
+at runtime, so it automatically resizes the selected image to 320×320 before
+inference.

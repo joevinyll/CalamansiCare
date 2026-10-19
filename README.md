@@ -32,16 +32,17 @@ This repository contains the Flutter frontend implementation and initial UI prot
 
 ## Supported Disease Classes
 
-All classification outputs, database schemas, and localization files must strictly adhere to the following target labels:
+All classification outputs, database schemas, and localization files must strictly adhere to the following target labels, in this exact model-output order:
 
-* `Healthy`
-* `Citrus Canker`
-* `HLB / Greening`
 * `Anthracnose`
-* `Sooty Mold`
+* `Brown Spot`
+* `Citrus Canker`
 * `Citrus Scab`
-* `Brown Rot`
-* `Nutrient Deficiency`
+* `HLB (Greening)`
+* `Healthy Fruit`
+* `Healthy Leaf`
+* `Melanose`
+* `Sooty Mold`
 
 ---
 
