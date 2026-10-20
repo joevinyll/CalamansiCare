@@ -14,8 +14,8 @@ its own Rescaling/normalization baked into the graph as its first layer, so
 dividing by 255 in the app would double-normalize the input). Rebuild the
 app after replacing the model file.
 
-The bundled model has nine output classes in this order (from `class_names.json`
-exported alongside `CalamansiCare_MobileNetV2_9Class_320_SootyMold.tflite` — this is the authoritative
+The bundled model has eight output classes in this order (from `class_names.json`
+exported alongside `CalamansiCare_8Class_320.tflite` — this is the authoritative
 source, since Keras assigns class indices by sorting training folder names,
 not by whatever order a person expects):
 
@@ -27,7 +27,6 @@ not by whatever order a person expects):
 6. Healthy Fruit
 7. Healthy Leaf
 8. Melanose
-9. Sooty Mold
 
 If you ever retrain or re-export the model, re-check `class_names.json` and
 update `diseaseLabels` in `lib/main.dart` to match exactly, in the same

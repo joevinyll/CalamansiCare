@@ -807,10 +807,6 @@ class DiseaseTranslations {
       AppText.tagalog: 'Brown Spot',
       AppText.cebuano: 'Brown Spot',
     },
-    'Sooty Mold': {
-      AppText.tagalog: 'Sooty Mold',
-      AppText.cebuano: 'Sooty Mold',
-    },
     'Description': {
       AppText.tagalog: 'Paglalarawan',
       AppText.cebuano: 'Paglarawan',
@@ -1037,13 +1033,6 @@ class DiseaseTranslations {
           'Suriin kung may peste na gumagawa ng honeydew tulad ng scale, aphids, mealybugs, o whiteflies, pagkatapos kontrolin ang pesteng sanhi ng amag.',
       AppText.cebuano:
           'Susiha kung naay peste nga naghimo ug honeydew sama sa scale, aphids, mealybugs, o whiteflies, unya kontrola ang peste nga hinungdan sa amag.',
-    },
-    'Sooty mold grows on sticky honeydew, so spraying fungicide alone is not the main fix. Ask a technician to identify the insect pest, then use the correct labeled insect control only when needed.':
-        {
-      AppText.tagalog:
-          'Tumutubo ang sooty mold sa malagkit na honeydew, kaya hindi sapat ang fungicide lang. Magpatulong sa technician para tukuyin ang peste, pagkatapos gumamit lamang ng tamang labeled insect control kung kailangan.',
-      AppText.cebuano:
-          'Motubo ang sooty mold sa sticky honeydew, busa dili igo ang fungicide lang. Pangayo ug tabang sa technician aron mailhan ang peste, unya gamit lang ug sakto nga labeled insect control kung kinahanglan.',
     },
     'Wash or wipe heavy black coating from leaves and fruit where practical, prune crowded branches for airflow, control ants, and use insecticidal soap or horticultural oil only when allowed and advised.':
         {

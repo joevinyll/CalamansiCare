@@ -4,6 +4,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('Supported conditions match the eight-class model output order', () {
+    expect(diseaseLabels, const [
+      'Anthracnose',
+      'Brown Spot',
+      'Citrus Canker',
+      'Citrus Scab',
+      'HLB (Greening)',
+      'Healthy Fruit',
+      'Healthy Leaf',
+      'Melanose',
+    ]);
+    expect(treatmentAdviceByDisease.keys, unorderedEquals(diseaseLabels));
+  });
+
   test('Every supported condition uses the revised advice in each language',
       () {
     expect(treatmentAdviceByDisease.keys, containsAll(diseaseLabels));

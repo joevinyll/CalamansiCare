@@ -34,7 +34,6 @@ const diseaseLabels = [
   'Healthy Fruit',
   'Healthy Leaf',
   'Melanose',
-  'Sooty Mold',
 ];
 
 const locationChannel = MethodChannel('calamansi_care/location');
@@ -183,8 +182,6 @@ String diseaseDescriptionFor(String disease) {
       return 'A fungal disease that can make rough raised scab marks on young leaves and fruit. It is common when new growth stays wet.';
     case 'Brown Spot':
       return 'A fungal disease that can cause brown leaf spots, fruit spots, and leaf drop. Wet weather and dense canopies can make it worse.';
-    case 'Sooty Mold':
-      return 'A black surface mold that grows on sticky honeydew from insects like scale, aphids, mealybugs, or whiteflies. It can cover leaves and fruit and reduce sunlight reaching the leaf.';
     default:
       return 'The condition needs a clearer photo or field checking before making a treatment decision.';
   }

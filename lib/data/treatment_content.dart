@@ -174,27 +174,6 @@ const treatmentAdviceByDisease = <String, TreatmentAdvice>{
     prevention:
         'Monitor new flush and young fruit, reduce long leaf-wetness periods, and remove diseased debris from the farm.',
   ),
-  'Sooty Mold': TreatmentAdvice(
-    kind: 'Surface fungal growth',
-    cultural: (
-      english:
-          'Check for insects that leave sticky liquid on leaves, such as aphids, whiteflies, mealybugs, and soft scale insects. Wash off thick black coating with water where practical. Control ants and protect helpful insects that eat pests. Remove heavily infested parts only when appropriate.',
-      tagalog:
-          'Suriin kung may mga insektong nag-iiwan ng malagkit na likido sa dahon, tulad ng aphids, whiteflies, mealybugs, at soft scale insects. Hugasan ng tubig ang makapal na itim na patong kung kaya. Kontrolin ang langgam at protektahan ang mga insektong kumakain ng peste. Alisin lamang ang bahaging maraming peste kung nararapat.',
-      cebuano:
-          'Susiha kung naay mga insekto nga nagbilin ug pilit nga likido sa mga dahon, sama sa aphids, whiteflies, mealybugs, ug soft scale insects. Hugasi ug tubig ang baga nga itom nga patong kung mahimo. Kontrola ang hulmigas ug panalipdi ang mga insektong mokaon sa peste. Tangtanga lamang ang bahing daghan ug peste kung angay.',
-    ),
-    chemical: (
-      english:
-          'Treat the insect causing the sticky liquid when needed. Depending on the insect, a technician may recommend horticultural oil, insecticidal soap, or another suitable insect spray. Spraying only for mold does not stop the insects causing it.',
-      tagalog:
-          'Kontrolin ang insektong gumagawa ng malagkit na likido kung kailangan. Depende sa insekto, maaaring magrekomenda ang technician ng horticultural oil, insecticidal soap, o ibang angkop na insect spray. Ang pag-spray para lang sa amag ay hindi nakakapigil sa mga insektong sanhi nito.',
-      cebuano:
-          'Kontrola ang insektong naghimo sa pilit nga likido kung kinahanglan. Depende sa insekto, mahimong morekomenda ang technician ug horticultural oil, insecticidal soap, o laing angay nga insect spray. Ang pag-spray para lamang sa amag dili makapugong sa mga insektong hinungdan niini.',
-    ),
-    prevention:
-        'Inspect the underside of leaves and young shoots weekly for sap-sucking insects, manage ants that protect them, and keep the canopy open so pests are easier to see.',
-  ),
 };
 
 const treatmentHeadings = <TreatmentText>[
