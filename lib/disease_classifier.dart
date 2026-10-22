@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
+import 'package:flutter/foundation.dart' show kDebugMode, debugPrint, compute;
 import 'package:image/image.dart' as image;
 import 'package:tflite_flutter/tflite_flutter.dart';
 
@@ -17,12 +17,34 @@ class DiseaseClassifier {
 
   static final DiseaseClassifier instance = DiseaseClassifier._();
   Interpreter? _interpreter;
+  Future<void> _pending = Future<void>.value();
 
   Future<DiseasePrediction> classify(
     Uint8List imageBytes,
     List<String> labels,
-  ) async {
-    final interpreter = await _load();
+  ) {
+    // One interpreter is shared across requests; never run it concurrently.
+    final result = _pending.then((_) async {
+      final interpreter = await _load();
+      return compute(_classifyInBackground,
+          (address: interpreter.address, bytes: imageBytes, labels: labels),
+          debugLabel: 'CalamansiCare image analysis');
+    });
+    _pending = result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    return result;
+  }
+
+  static DiseasePrediction _classifyInBackground(
+      ({int address, Uint8List bytes, List<String> labels}) request) {
+    // The root isolate owns this native interpreter and keeps it alive.
+    final interpreter =
+        Interpreter.fromAddress(request.address, allocated: true);
+    return DiseaseClassifier._()
+        ._classifyPrepared(interpreter, request.bytes, request.labels);
+  }
+
+  DiseasePrediction _classifyPrepared(
+      Interpreter interpreter, Uint8List imageBytes, List<String> labels) {
     final source = image.decodeImage(imageBytes);
     if (source == null) {
       throw const FormatException('The selected file is not a valid image.');

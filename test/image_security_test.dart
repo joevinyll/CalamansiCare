@@ -2,10 +2,17 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:image/image.dart' as img;
 import 'package:calamansi_care/data/image_security.dart';
 
 void main() {
+  test('background photo compression preserves output and errors', () async {
+    final png = Uint8List.fromList(img.encodePng(img.Image(width: 8, height: 6)));
+    final encoded = await compute(encodeReportImage, png);
+    expect(encoded, orderedEquals(encodeReportImage(png)));
+    await expectLater(compute(encodeReportImage, Uint8List.fromList([1, 2, 3])), throwsFormatException);
+  });
   test('accepts a valid image and transcodes it to WebP', () {
     final png =
         Uint8List.fromList(img.encodePng(img.Image(width: 4, height: 3)));

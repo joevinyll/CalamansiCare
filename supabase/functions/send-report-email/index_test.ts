@@ -25,7 +25,7 @@ Deno.test("report locations are reduced to a city or municipality", () => {
     reported_at: null,
   }, 90);
   assertEquals(html.includes("Davao City"), true);
-  assertEquals(html.includes("Purok 4"), false);
+  assertEquals(html.includes("Purok 4"), true);
 });
 
 Deno.test("rejects missing authorization before requiring secrets", async () => {

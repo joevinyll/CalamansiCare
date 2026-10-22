@@ -6,6 +6,21 @@ const authSecureStorage = FlutterSecureStorage(
       IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device),
 );
 
+/// A failed remote revocation must not turn a completed local logout into an error.
+Future<void> signOutThisDevice({
+  required Future<void> Function() revokeSession,
+  required bool Function() hasSession,
+  required Future<void> Function() clearPersistedSession,
+}) async {
+  try {
+    await revokeSession();
+  } catch (_) {
+    if (hasSession()) rethrow;
+  }
+  if (hasSession()) throw StateError('The local session is still active.');
+  await clearPersistedSession();
+}
+
 /// Migrate the SDK's existing session only after the encrypted write succeeds.
 /// Serialize writes/removal so an in-flight refresh cannot outlive logout.
 class SecureAuthStorage extends LocalStorage {

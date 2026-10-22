@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -38,6 +39,12 @@ Future<void> pumpCalamansiCare(WidgetTester tester, {Widget? app}) async {
 }
 
 void main() {
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+            const MethodChannel('plugins.flutter.io/camera'),
+            (call) async => call.method == 'availableCameras' ? [] : null);
+  });
   setUpAll(() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
@@ -105,7 +112,7 @@ void main() {
     await tester.tap(find.text('Capture'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Capture image'), findsOneWidget);
+    expect(find.text('Capture images'), findsOneWidget);
     expect(find.byTooltip('Back'), findsOneWidget);
 
     await tester.tap(find.byTooltip('Back'));

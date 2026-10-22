@@ -22,12 +22,14 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final state = AppScope.of(context);
     return ScreenFrame(
+      allowCameraOverlap: true,
       child: RefreshIndicator(
         onRefresh: () async {
           await state.checkConnectivityAndSync();
           await state.refreshStats();
         },
         child: SingleChildScrollView(
+          padding: const EdgeInsets.only(bottom: 34),
           physics: const AlwaysScrollableScrollPhysics(),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -45,7 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 secondaryLabel: 'Upload',
                 onPrimary: () => go(context, const CaptureScreen()),
                 onSecondary: () =>
-                    selectLeafImage(context, ImageSource.gallery),
+                    go(context, const CaptureScreen(openGallery: true)),
               ),
               const SizedBox(height: 18),
               SectionCard(
@@ -104,6 +106,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: OutlineAction(
                   label: 'Open barangay reports',
                   icon: Icons.map_outlined,
+                  backgroundColor: CcColors.green,
+                  foregroundColor: Colors.white,
+                  borderColor: CcColors.green,
                   onTap: () => go(context, const BarangayReportsScreen()),
                 ),
               ),
@@ -205,9 +210,20 @@ void showFieldSummaryOverlay(
                       itemCount: rows.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
                       itemBuilder: (context, index) {
-                        return FieldSummaryDetailTile(
+                        final tile = FieldSummaryDetailTile(
                           row: rows[index],
                           kind: kind,
+                        );
+                        if (kind != FieldSummaryKind.queued) return tile;
+                        return Semantics(
+                          button: true,
+                          label: 'Open batch in history',
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(14),
+                            onTap: () => openQueuedSummaryBatch(
+                                dialogContext, rows[index]),
+                            child: tile,
+                          ),
                         );
                       },
                     ),
@@ -219,6 +235,34 @@ void showFieldSummaryOverlay(
       );
     },
   );
+}
+
+Future<void> openQueuedSummaryBatch(
+    BuildContext context, Map<String, Object?> row) async {
+  final navigator = Navigator.of(context);
+  final state = AppScope.of(context);
+  try {
+    final batches = groupScanHistory(
+        await DiagnosisRepository.instance.getRecentDiagnoses(limit: null));
+    final matches = batches
+        .where((batch) => batch.rows.any((scan) => scan['id'] == row['id']));
+    if (!context.mounted) return;
+    if (matches.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('This batch is no longer available.')));
+      return;
+    }
+    final batch = matches.first;
+    navigator.pop();
+    state.setTab(1);
+    await navigator.push<void>(MaterialPageRoute(
+        builder: (_) => BatchHistoryDetailsScreen(batch: batch)));
+  } catch (_) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Could not open the batch. Please try again.')));
+    }
+  }
 }
 
 class FieldSummaryDetailTile extends StatelessWidget {
@@ -286,6 +330,18 @@ class FieldSummaryDetailTile extends StatelessWidget {
             label: 'Confidence',
             value: '${confidence.toStringAsFixed(0)}%',
           ),
+          if (kind == FieldSummaryKind.checks) ...[
+            FieldSummaryStatusRow(
+              label: 'Risk level',
+              value: _batchRisk(disease).replaceFirst(' risk', ' Risk'),
+              color: switch (_batchRisk(disease)) {
+                'No risk' || 'Low risk' => CcColors.green,
+                'High risk' => Colors.red.shade700,
+                _ => const Color(0xFFAF7B18),
+              },
+            ),
+            InfoRow(label: 'Disease type', value: guidanceFor(disease).kind),
+          ],
           FieldSummaryStatusRow(
             label: 'Status',
             value: status,
@@ -393,90 +449,6 @@ void showDiseaseInfoOverlay(BuildContext context, String disease) {
       );
     },
   );
-}
-
-class CaptureScreen extends StatelessWidget {
-  const CaptureScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return DarkScreen(
-      title: 'Capture image',
-      child: Column(
-        children: [
-          Expanded(
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(18),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: .08),
-                borderRadius: BorderRadius.circular(28),
-                border: Border.all(color: Colors.white.withValues(alpha: .22)),
-              ),
-              child: Stack(
-                children: [
-                  Center(
-                    child: Container(
-                      width: 260,
-                      height: 260,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: CcColors.limeLight, width: 3),
-                      ),
-                    ),
-                  ),
-                  const Center(child: PlantIllustration(size: 220, dark: true)),
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 6,
-                    child: Text(
-                      context.t('Place one affected leaf inside the guide'),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 22),
-          SizedBox(
-            width: 76,
-            height: 76,
-            child: FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: CcColors.dark,
-                shape: const CircleBorder(),
-              ),
-              onPressed: () => selectLeafImage(context, ImageSource.camera),
-              child: const Icon(Icons.camera_alt_rounded, size: 30),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextButton.icon(
-            onPressed: () => selectLeafImage(context, ImageSource.gallery),
-            icon: const SizedBox.shrink(),
-            label: Text(context.t('Choose from gallery')),
-            style: TextButton.styleFrom(
-              backgroundColor: Colors.white.withValues(alpha: .14),
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-              textStyle:
-                  const TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class CheckingScreen extends StatefulWidget {
@@ -674,11 +646,13 @@ class DiagnosisScreen extends StatelessWidget {
       {super.key,
       required this.prediction,
       required this.imageFile,
-      required this.diagnosisId});
+      required this.diagnosisId,
+      this.imageNumber});
 
   final DiseasePrediction prediction;
   final XFile imageFile;
   final int diagnosisId;
+  final int? imageNumber;
 
   @override
   Widget build(BuildContext context) {
@@ -688,59 +662,39 @@ class DiagnosisScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const TopLine(
-            title: 'Diagnosis result',
-            subtitle: 'Review before preparing the report.',
-          ),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            IconButton(
+              tooltip: context.t('Back'),
+              onPressed: () => Navigator.maybePop(context),
+              icon: const Icon(Icons.arrow_back_rounded),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+                child: TopLine(
+              title: imageNumber == null
+                  ? 'Diagnosis result'
+                  : 'Image $imageNumber Result',
+              subtitle: 'Review before preparing the report.',
+            )),
+          ]),
           const SizedBox(height: 16),
           Expanded(
             child: ListView(
               children: [
-                Container(
-                  width: double.infinity,
-                  height: 190,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: CcColors.softStrong,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
-                          child: LeafImage(
-                            imageFile: imageFile,
-                            width: double.infinity,
-                            height: 160,
-                          ),
-                        ),
+                AspectRatio(
+                  key: const ValueKey('diagnosis-photo-frame'),
+                  aspectRatio: 1,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: ColoredBox(
+                      color: CcColors.bgAlt,
+                      child: LeafImage(
+                        imageFile: imageFile,
+                        width: double.infinity,
+                        height: double.infinity,
+                        fit: BoxFit.contain,
                       ),
-                      if (!shouldRetakePhoto)
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 0,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
-                            ),
-                            decoration: BoxDecoration(
-                              color: CcColors.green.withValues(alpha: .35),
-                              borderRadius: BorderRadius.circular(99),
-                            ),
-                            child: Text(
-                              context.t('Analyzed photo'),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 18),
@@ -752,11 +706,6 @@ class DiagnosisScreen extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const SmallPill(
-                          'Likely disease',
-                          color: CcColors.orange,
-                        ),
-                        const SizedBox(height: 12),
                         Text(
                           context.t(prediction.label),
                           style: Theme.of(context).textTheme.headlineMedium,
@@ -781,9 +730,7 @@ class DiagnosisScreen extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 12),
-                        const Text(
-                          'Uneven yellowing and blotchy leaf pattern match common HLB symptoms.',
-                        ),
+                        Text(diseaseDescriptionFor(prediction.label)),
                       ],
                     ),
                   ),
@@ -798,7 +745,7 @@ class DiagnosisScreen extends StatelessWidget {
               icon: Icons.camera_alt_rounded,
               onPressed: () => replaceWith(context, const CaptureScreen()),
             )
-          else
+          else if (!_isHealthyCondition(prediction.label))
             PrimaryButton(
               label: 'View treatment guide',
               icon: Icons.medical_services_outlined,
@@ -821,32 +768,35 @@ class LeafImage extends StatelessWidget {
     required this.imageFile,
     required this.width,
     required this.height,
+    this.fit = BoxFit.cover,
   });
 
   final XFile imageFile;
   final double width;
   final double height;
+  final BoxFit fit;
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<Uint8List>(
-      future: imageFile.readAsBytes(),
-      builder: (context, snapshot) {
-        if (snapshot.hasData) {
-          return Image.memory(
-            snapshot.data!,
-            width: width,
-            height: height,
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => PlantIllustration(size: height),
-          );
-        }
-        return SizedBox(
+    return Image.file(
+      File(imageFile.path),
+      width: width,
+      height: height,
+      fit: fit,
+      cacheWidth: 1600,
+      gaplessPlayback: true,
+      frameBuilder: (context, child, frame, synchronous) => synchronous ||
+              frame != null
+          ? child
+          : SizedBox(
+              width: width,
+              height: height,
+              child: const Center(
+                  child: Icon(Icons.image_outlined, color: CcColors.muted))),
+      errorBuilder: (_, __, ___) => SizedBox(
           width: width,
           height: height,
-          child: const Center(child: CircularProgressIndicator()),
-        );
-      },
+          child: const Center(child: Text('Photo unavailable'))),
     );
   }
 }
@@ -1420,6 +1370,11 @@ void showAboutAppDialog(BuildContext context) {
                           body:
                               'The app gives guidance only. Confirm serious disease findings with the local agriculture office before applying treatment.',
                         ),
+                        TermsAgreementPoint(
+                          title: 'Design credits',
+                          body:
+                              'Profile icon: UIcons by Flaticon (https://www.flaticon.com/uicons). Profile typeface: Libre Baskerville, SIL Open Font License.',
+                        ),
                       ],
                     ),
                   ),
@@ -1633,127 +1588,6 @@ class ReportSummaryImage extends StatelessWidget {
   }
 }
 
-class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key});
-
-  @override
-  State<HistoryScreen> createState() => _HistoryScreenState();
-}
-
-class _HistoryScreenState extends State<HistoryScreen> {
-  late Future<List<Map<String, Object?>>> _future;
-
-  @override
-  void initState() {
-    super.initState();
-    _future = DiagnosisRepository.instance.getRecentDiagnoses();
-  }
-
-  Future<void> _pullToRefresh() async {
-    final state = AppScope.of(context);
-    await state.checkConnectivityAndSync();
-    final nextRows = DiagnosisRepository.instance.getRecentDiagnoses();
-    if (mounted) {
-      setState(() {
-        _future = nextRows;
-      });
-    }
-    await nextRows;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return ScreenFrame(
-      child: RefreshIndicator(
-        onRefresh: _pullToRefresh,
-        child: FutureBuilder<List<Map<String, Object?>>>(
-          future: _future,
-          builder: (context, snapshot) {
-            final rows = snapshot.data;
-            return SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const TopLine(
-                    title: 'History',
-                    subtitle: 'Saved scans and report status on this phone.',
-                  ),
-                  const SizedBox(height: 16),
-                  if (snapshot.connectionState == ConnectionState.waiting)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 24),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  else if (rows == null || rows.isEmpty)
-                    SectionCard(
-                      title: 'No scans yet',
-                      child: Text(
-                          context.t('Scan a leaf from Home to see it here.')),
-                    )
-                  else
-                    for (final row in rows)
-                      HistoryTile(
-                        disease: row['disease'] as String,
-                        status:
-                            _reportStatusLabel(row['report_status'] as String?),
-                        date: _formatHistoryDate(row['created_at'] as String),
-                        confidence:
-                            '${(((row['confidence'] as num).toDouble()) * 100).toStringAsFixed(0)}%',
-                        onRetry: _canRetryHistoryReport(row)
-                            ? () async {
-                                final diagnosisId = row['id'] as int?;
-                                final reportId = row['report_id'] as int?;
-                                if (diagnosisId == null) return;
-                                final state = AppScope.of(context);
-                                await DiagnosisRepository.instance
-                                    .markDiagnosisReportForRetry(diagnosisId);
-                                await state.checkConnectivityAndSync();
-                                await state.refreshStats();
-                                if (!mounted) return;
-                                setState(() {
-                                  _future = DiagnosisRepository.instance
-                                      .getRecentDiagnoses();
-                                });
-                                if (!context.mounted) return;
-                                final reportStatus = reportId == null
-                                    ? null
-                                    : await DiagnosisRepository.instance
-                                        .getReportStatus(reportId);
-                                if (!context.mounted) return;
-                                final message = reportStatus ==
-                                        reportStatusSynced
-                                    ? 'Report sent successfully.'
-                                    : 'No internet. Your report is saved and will send later.';
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text(context.t(message))),
-                                );
-                              }
-                            : null,
-                        onTap: () => showHistoryDetailSheet(
-                          context,
-                          row,
-                          onDeleted: () async {
-                            await AppScope.of(context).refreshStats();
-                            if (mounted) {
-                              setState(() {
-                                _future = DiagnosisRepository.instance
-                                    .getRecentDiagnoses();
-                              });
-                            }
-                          },
-                        ),
-                      ),
-                ],
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-}
-
 void showHistoryDetailSheet(
   BuildContext context,
   Map<String, Object?> row, {
@@ -1841,29 +1675,30 @@ void showHistoryDetailSheet(
                 ),
               ),
               const SizedBox(height: 12),
-              SectionCard(
-                title: 'Treatment recommendation',
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    InfoRow(label: 'Condition type', value: guidance.kind),
-                    const SizedBox(height: 10),
-                    TreatmentMethodBlock(
-                      icon: Icons.science_outlined,
-                      title: 'Chemical Options',
-                      text: guidance.conventionalTreatment,
-                      color: CcColors.red,
-                    ),
-                    const SizedBox(height: 8),
-                    TreatmentMethodBlock(
-                      icon: Icons.spa_outlined,
-                      title: 'Cultural / Nonchemical Methods',
-                      text: guidance.organicTreatment,
-                      color: CcColors.green,
-                    ),
-                  ],
+              if (!_isHealthyCondition(disease))
+                SectionCard(
+                  title: 'Treatment recommendation',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      InfoRow(label: 'Condition type', value: guidance.kind),
+                      const SizedBox(height: 10),
+                      TreatmentMethodBlock(
+                        icon: Icons.science_outlined,
+                        title: 'Chemical Options',
+                        text: guidance.conventionalTreatment,
+                        color: CcColors.red,
+                      ),
+                      const SizedBox(height: 8),
+                      TreatmentMethodBlock(
+                        icon: Icons.spa_outlined,
+                        title: 'Cultural / Nonchemical Methods',
+                        text: guidance.organicTreatment,
+                        color: CcColors.green,
+                      ),
+                    ],
+                  ),
                 ),
-              ),
               const SizedBox(height: 12),
               SectionCard(
                 title: 'Saved details',
@@ -2056,11 +1891,17 @@ Future<bool> showSignOutConfirmation(BuildContext context) async {
     context: context,
     builder: (dialogContext) {
       return AlertDialog(
-        title: Text(context.t('Sign out?')),
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        title: Text(context.t('Sign out?'),
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
         content: Text(
           context.t(
             'When you log out, this account\'s saved data on this phone will be deleted. Reports already sent online will stay in Barangay Reports.',
           ),
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 15, height: 1.5),
         ),
         actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
         actions: [
@@ -2172,12 +2013,6 @@ String _reportStatusLabel(String? status) {
     default:
       return 'Saved on phone';
   }
-}
-
-bool _canRetryHistoryReport(Map<String, Object?> row) {
-  return row['id'] != null &&
-      (row['report_status'] == reportStatusWaitingInternet ||
-          row['report_status'] == reportStatusFailedRetry);
 }
 
 String _formatHistoryDate(String isoTimestamp) {

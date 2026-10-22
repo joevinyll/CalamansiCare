@@ -6,6 +6,49 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:calamansi_care/data/secure_auth_storage.dart';
 
 void main() {
+  test('remote logout error after local session removal still completes',
+      () async {
+    var active = true;
+    var cleared = false;
+    await signOutThisDevice(
+      revokeSession: () async {
+        active = false;
+        throw Exception('Offline');
+      },
+      hasSession: () => active,
+      clearPersistedSession: () async {
+        cleared = true;
+      },
+    );
+    expect(cleared, isTrue);
+  });
+  test('logout failure with active session does not clear persisted data',
+      () async {
+    var cleared = false;
+    await expectLater(
+        signOutThisDevice(
+          revokeSession: () async {
+            throw Exception('Session not removed');
+          },
+          hasSession: () => true,
+          clearPersistedSession: () async {
+            cleared = true;
+          },
+        ),
+        throwsException);
+    expect(cleared, isFalse);
+  });
+  test('secure storage errors are not hidden', () async {
+    await expectLater(
+        signOutThisDevice(
+          revokeSession: () async {},
+          hasSession: () => false,
+          clearPersistedSession: () async {
+            throw Exception('Storage failure');
+          },
+        ),
+        throwsException);
+  });
   TestWidgetsFlutterBinding.ensureInitialized();
   late TestFlutterSecureStoragePlatform securePlatform;
 

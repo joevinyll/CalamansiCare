@@ -1,9 +1,12 @@
 import 'dart:io';
+import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show compute;
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:path/path.dart';
+import 'package:crypto/crypto.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -15,6 +18,33 @@ const reportStatusSyncing = 'syncing';
 const reportStatusSynced = 'synced';
 const reportStatusFailedRetry = 'failed_retry';
 const reportImagesBucket = 'report-images';
+const maxAvatarBytes = 5 * 1024 * 1024;
+
+String reportSyncErrorMessage(Object error) {
+  if (error is PostgrestException && error.code == 'PGRST202') {
+    return 'Batch reporting is not set up on the server. Apply the batch email migration and deploy send-report-email. Your images are saved.';
+  }
+  if (error is StorageException &&
+      (error.statusCode == '403' || error.statusCode == '400')) {
+    return 'Image upload was rejected. Check the report-images storage policies and file size limit. Your images are saved.';
+  }
+  if (error is FunctionException) {
+    return 'The report email service rejected delivery. Check the deployed send-report-email function and its logs. Your images are saved.';
+  }
+  return 'Could not finish sending. Your images are saved; try again or check the report service.';
+}
+
+String reportImageStoragePath(String farmerName, String reportId) {
+  final name = farmerName
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+      .replaceAll(RegExp(r'^-+|-+$'), '');
+  final folder =
+      name.isEmpty ? 'farmer' : name.substring(0, min(name.length, 64));
+  final id = sha256.convert(utf8.encode(reportId)).toString();
+  return 'reports/$folder/report-$id.webp';
+}
 
 /// Local-first persistence for diagnoses and farmer reports.
 ///
@@ -22,18 +52,21 @@ const reportImagesBucket = 'report-images';
 /// configured, queued reports are copied to the `diagnosis_reports` table and
 /// marked as synced only after the insert succeeds.
 class DiagnosisRepository {
+  String? lastReportSyncError;
   DiagnosisRepository._();
 
   static final instance = DiagnosisRepository._();
   Database? _database;
   SupabaseClient? _supabase;
   Future<void>? _initialiseFuture;
+  Future<void>? _batchSchemaFuture;
   SecureAuthStorage? _authStorage;
 
   static const _supabaseUrl = String.fromEnvironment('SUPABASE_URL');
   static const _supabaseAnonKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 
   bool get isSupabaseConfigured => _supabase != null;
+  SupabaseClient get communityClient => _requireSupabase();
   User? get currentUser => _supabase?.auth.currentUser;
   Stream<AuthState>? get authStateChanges => _supabase?.auth.onAuthStateChange;
 
@@ -47,7 +80,7 @@ class DiagnosisRepository {
     final databasePath = await getDatabasesPath();
     _database ??= await openDatabase(
       join(databasePath, 'calamansi_care.db'),
-      version: 6,
+      version: 7,
       onCreate: (db, _) async {
         freshInstall = true;
         await _createSchema(db);
@@ -67,6 +100,9 @@ class DiagnosisRepository {
         }
         if (oldVersion < 6) {
           await _upgradeQueuedReportsForCoordinates(db);
+        }
+        if (oldVersion < 7) {
+          await _upgradeDiagnosisBatches(db);
         }
       },
     );
@@ -109,6 +145,9 @@ class DiagnosisRepository {
         confidence REAL NOT NULL,
         image_path TEXT,
         user_id TEXT,
+        batch_id TEXT,
+        batch_total_count INTEGER NOT NULL DEFAULT 1,
+        batch_image_index INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL
       )
     ''');
@@ -133,6 +172,31 @@ class DiagnosisRepository {
           )
     ''');
     await _createSettingsTable(db);
+  }
+
+  Future<void> _upgradeDiagnosisBatches(DatabaseExecutor db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(diagnoses)');
+    final names = columns.map((row) => row['name']).toSet();
+    for (final entry in {
+      'batch_id': 'TEXT',
+      'batch_total_count': 'INTEGER NOT NULL DEFAULT 1',
+      'batch_image_index': 'INTEGER NOT NULL DEFAULT 0',
+    }.entries) {
+      if (!names.contains(entry.key)) {
+        await db.execute(
+            'ALTER TABLE diagnoses ADD COLUMN ${entry.key} ${entry.value}');
+      }
+    }
+  }
+
+  Future<void> _ensureBatchSchema(Database db) async {
+    final pending = _batchSchemaFuture ??= _upgradeDiagnosisBatches(db);
+    try {
+      await pending;
+    } catch (_) {
+      if (identical(_batchSchemaFuture, pending)) _batchSchemaFuture = null;
+      rethrow;
+    }
   }
 
   Future<void> _createSettingsTable(DatabaseExecutor db) async {
@@ -287,6 +351,11 @@ class DiagnosisRepository {
 
   Future<void> clearLocalAccountData(AppSettings settingsToKeep) async {
     final db = await _db;
+    final avatars = await db
+        .query('app_settings', where: 'key = ?', whereArgs: ['avatar_path']);
+    for (final row in avatars) {
+      await deleteProfileAvatar(row['value'] as String? ?? '');
+    }
     final images = await db.query('diagnoses', columns: ['image_path']);
     await _deleteCachedDiagnosisImages(images);
     final now = DateTime.now().toUtc().toIso8601String();
@@ -323,8 +392,10 @@ class DiagnosisRepository {
     };
     final settings = AppSettings.fromMap(values);
     var didSync = false;
+    var profileSynced = false;
     try {
       await upsertFarmerProfile(settings);
+      profileSynced = client.auth.currentUser != null;
       didSync = true;
     } catch (_) {
       // Profile sync can retry later when Supabase/RLS is ready.
@@ -352,7 +423,7 @@ class DiagnosisRepository {
       // Device settings sync can retry later. Profile sync above is enough for
       // account restore and Supabase farmer details.
     }
-    if (!didSync) return false;
+    if (!didSync || !profileSynced) return false;
     await db.update(
       'app_settings',
       {'synced_at': DateTime.now().toUtc().toIso8601String()},
@@ -408,18 +479,41 @@ class DiagnosisRepository {
   }
 
   Future<void> signOut() async {
-    final client = _requireSupabase();
-    try {
-      await client.auth.signOut();
-    } finally {
-      await _authStorage?.removePersistedSession();
-    }
+    final client = _supabase;
+    await signOutThisDevice(
+        revokeSession: () async {
+          await client?.auth.signOut(scope: SignOutScope.local);
+        },
+        hasSession: () => client?.auth.currentSession != null,
+        clearPersistedSession: () async {
+          await _authStorage?.removePersistedSession();
+        });
   }
 
   Future<void> upsertFarmerProfile(AppSettings settings) async {
     final client = _supabase;
     final user = client?.auth.currentUser;
     if (client == null || user == null) return;
+    final db = await _db;
+    final markers = await db.query('app_settings',
+        where: 'key = ?', whereArgs: ['avatar_uploaded_path']);
+    final uploadedPath =
+        markers.isEmpty ? null : markers.first['value'] as String?;
+    final includeAvatar =
+        settings.avatarPath.isNotEmpty || uploadedPath != null;
+    String? avatarObjectPath;
+    if (settings.avatarPath.isNotEmpty) {
+      avatarObjectPath = '${user.id}/${basename(settings.avatarPath)}';
+      if (settings.avatarPath != uploadedPath) {
+        final bytes = await compute(
+            encodeReportImage, await File(settings.avatarPath).readAsBytes());
+        await client.storage.from('profile-avatars').uploadBinary(
+            avatarObjectPath, bytes,
+            fileOptions:
+                const FileOptions(contentType: 'image/webp', upsert: true));
+      }
+    }
+    if (client.auth.currentUser?.id != user.id) return;
     await client.from('farmer_profiles').upsert({
       'user_id': user.id,
       'farmer_name': settings.farmerName,
@@ -430,6 +524,7 @@ class DiagnosisRepository {
       'language': settings.language,
       'consent_enabled': settings.consentEnabled,
       'font_scale': settings.fontScale,
+      if (includeAvatar) 'avatar_object_path': avatarObjectPath,
       'device_id': settings.deviceId,
       'device_signature': settings.deviceSignature,
       'device_model': settings.deviceModel,
@@ -437,6 +532,60 @@ class DiagnosisRepository {
       'android_version': settings.androidVersion,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     }, onConflict: 'user_id').timeout(const Duration(seconds: 20));
+    if (includeAvatar && client.auth.currentUser?.id == user.id) {
+      await db.insert(
+          'app_settings',
+          {
+            'key': 'avatar_uploaded_path',
+            'value': settings.avatarPath,
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
+            'synced_at': DateTime.now().toUtc().toIso8601String(),
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+  }
+
+  Future<String?> restoreProfileAvatar(String? objectPath) async {
+    final client = _supabase;
+    final user = client?.auth.currentUser;
+    if (client == null || user == null) return null;
+    final db = await _db;
+    final markers = await db.query('app_settings',
+        where: 'key = ?', whereArgs: ['avatar_uploaded_path']);
+    // A marker means this device has an existing photo or a pending removal.
+    if (markers.isNotEmpty) return null;
+    if (objectPath == null ||
+        !objectPath.startsWith('${user.id}/') ||
+        objectPath.split('/').length != 2 ||
+        objectPath.contains('..')) {
+      return null;
+    }
+    final bytes =
+        await client.storage.from('profile-avatars').download(objectPath);
+    if (bytes.length > maxAvatarBytes) {
+      throw const FormatException('Avatar is too large.');
+    }
+    final encoded = await compute(encodeReportImage, bytes);
+    if (client.auth.currentUser?.id != user.id) return null;
+    final support = await getApplicationSupportDirectory();
+    final directory = await Directory(join(support.path, 'profile_avatars'))
+        .create(recursive: true);
+    final path = join(directory.path, basename(objectPath));
+    await File(path).writeAsBytes(encoded, flush: true);
+    if (client.auth.currentUser?.id != user.id) {
+      await deleteProfileAvatar(path);
+      return null;
+    }
+    await db.insert(
+        'app_settings',
+        {
+          'key': 'avatar_uploaded_path',
+          'value': path,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+          'synced_at': DateTime.now().toUtc().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace);
+    return path;
   }
 
   Future<FarmerProfile?> fetchFarmerProfile() async {
@@ -554,12 +703,19 @@ class DiagnosisRepository {
     required String disease,
     required double confidence,
     required String imagePath,
+    String? batchId,
+    int batchTotalCount = 1,
+    int batchImageIndex = 0,
   }) async {
     final db = await _db;
+    await _ensureBatchSchema(db);
     return db.insert('diagnoses', {
       'disease': disease,
       'confidence': confidence,
       'image_path': imagePath,
+      'batch_id': batchId,
+      'batch_total_count': batchTotalCount,
+      'batch_image_index': batchImageIndex,
       'user_id': _supabase?.auth.currentUser?.id,
       'created_at': DateTime.now().toUtc().toIso8601String(),
     });
@@ -571,13 +727,36 @@ class DiagnosisRepository {
       throw const FormatException(
           'Image is unavailable or exceeds the size limit.');
     }
-    final bytes = encodeReportImage(await source.readAsBytes());
+    final bytes = await compute(encodeReportImage, await source.readAsBytes(),
+        debugLabel: 'CalamansiCare photo compression');
     final cache = await getTemporaryDirectory();
     final filename =
         'calamansi-${Random.secure().nextInt(0x7fffffff).toRadixString(16)}.webp';
     return (await File(join(cache.path, filename))
             .writeAsBytes(bytes, flush: true))
         .path;
+  }
+
+  Future<String> cacheProfileAvatar(String sourcePath) async {
+    final source = File(sourcePath);
+    if (!await source.exists() || await source.length() > maxAvatarBytes) {
+      throw const FormatException(
+          'Please choose a profile photo of 5 MB or less.');
+    }
+    final bytes = await compute(encodeReportImage, await source.readAsBytes());
+    final support = await getApplicationSupportDirectory();
+    final directory = await Directory(join(support.path, 'profile_avatars'))
+        .create(recursive: true);
+    final path = join(directory.path,
+        'avatar-${Random.secure().nextInt(0x7fffffff).toRadixString(16)}.webp');
+    return (await File(path).writeAsBytes(bytes, flush: true)).path;
+  }
+
+  Future<void> deleteProfileAvatar(String path) async {
+    if (path.isEmpty) return;
+    final support = await getApplicationSupportDirectory();
+    await deleteCachedImages(
+        [path], Directory(join(support.path, 'profile_avatars')));
   }
 
   Future<int> queueReport({
@@ -617,7 +796,55 @@ class DiagnosisRepository {
     });
   }
 
+  Future<void> queueBatchReports({
+    required List<int> diagnosisIds,
+    required AppSettings settings,
+  }) async {
+    if (!settings.consentEnabled) {
+      throw StateError('Report consent is required.');
+    }
+    final user = currentUser;
+    if (user == null) throw const AuthRequiredException();
+    final db = await _db;
+    await db.transaction((txn) async {
+      for (final id in diagnosisIds.toSet()) {
+        final rows = await txn.query('diagnoses',
+            where: 'id = ? AND (user_id = ? OR user_id IS NULL)',
+            whereArgs: [id, user.id]);
+        if (rows.isEmpty) {
+          throw StateError('Scan is unavailable for this account.');
+        }
+        await txn.update('diagnoses', {'user_id': user.id},
+            where: 'id = ? AND user_id IS NULL', whereArgs: [id]);
+        final reports = await txn.query('queued_reports',
+            where: 'diagnosis_id = ? AND user_id = ?',
+            whereArgs: [id, user.id],
+            limit: 1);
+        if (reports.isNotEmpty) continue;
+        final createdAt = DateTime.now().toUtc().toIso8601String();
+        await txn.insert('queued_reports', {
+          'local_report_id':
+              _generateLocalReportId(settings.deviceId, createdAt),
+          'diagnosis_id': id,
+          'office_email': settings.officeEmail,
+          'consent': 1,
+          'status': reportStatusWaitingInternet,
+          'device_id': settings.deviceId,
+          'device_signature': settings.deviceSignature,
+          'device_model': settings.deviceModel,
+          'user_id': user.id,
+          'farmer_name': settings.farmerName,
+          'farmer_location': settings.farmerLocation,
+          'latitude': settings.latitude,
+          'longitude': settings.longitude,
+          'created_at': createdAt,
+        });
+      }
+    });
+  }
+
   Future<int> syncQueuedReports() async {
+    lastReportSyncError = null;
     final client = _supabase;
     if (client == null) return 0;
     final user = client.auth.currentUser;
@@ -625,6 +852,7 @@ class DiagnosisRepository {
     await attachLocalRowsToCurrentUser();
     await syncSettings();
     final db = await _db;
+    await _ensureBatchSchema(db);
     final reports = await db.rawQuery('''
       SELECT
         r.id,
@@ -642,6 +870,7 @@ class DiagnosisRepository {
         r.consent,
         d.disease,
         d.confidence,
+        d.batch_id,
         d.image_path
       FROM queued_reports r
       JOIN diagnoses d ON d.id = r.diagnosis_id
@@ -649,7 +878,20 @@ class DiagnosisRepository {
         AND r.consent = 1
         AND r.user_id = ?
     ''', [user.id]);
+    if (reports.isEmpty) return 0;
+    try {
+      // An empty batch is rejected before any claims or email side effects.
+      await client.rpc('claim_batch_report_email', params: {
+        'report_ids': <String>[]
+      }).timeout(const Duration(seconds: 20));
+    } catch (error) {
+      lastReportSyncError = reportSyncErrorMessage(error);
+      return 0;
+    }
     var synced = 0;
+    final uploaded = <String, List<({int id, String reportId})>>{};
+    String deliveryGroup(Map<String, Object?> row) =>
+        '${row['batch_id'] ?? 'scan-${row['id']}'}:${row['office_email']}';
     for (final report in reports) {
       final localReportId = (report['local_report_id'] as String?) ??
           _generateLocalReportId(
@@ -659,13 +901,14 @@ class DiagnosisRepository {
       try {
         await db.update(
           'queued_reports',
-          {'status': reportStatusSyncing},
+          {'status': reportStatusSyncing, 'local_report_id': localReportId},
           where: 'id = ?',
           whereArgs: [report['id']],
         );
         final imageUrl = await _uploadReportImage(
           client: client,
           localReportId: localReportId,
+          farmerName: report['farmer_name'] as String? ?? '',
           imagePath: report['image_path'] as String?,
         );
         await client.from('diagnosis_reports').upsert({
@@ -688,19 +931,20 @@ class DiagnosisRepository {
           'reported_at': report['created_at'],
           'synced_at': DateTime.now().toUtc().toIso8601String(),
         }, onConflict: 'local_report_id').timeout(const Duration(seconds: 20));
-        await _requestReportEmail(client, localReportId);
+        uploaded
+            .putIfAbsent(deliveryGroup(report), () => [])
+            .add((id: report['id'] as int, reportId: localReportId));
         await db.update(
           'queued_reports',
           {
             'local_report_id': localReportId,
-            'status': reportStatusSynced,
-            'synced_at': DateTime.now().toUtc().toIso8601String()
+            'status': reportStatusWaitingInternet,
           },
           where: 'id = ?',
           whereArgs: [report['id']],
         );
-        synced++;
-      } catch (_) {
+      } catch (error) {
+        lastReportSyncError = reportSyncErrorMessage(error);
         await db.update(
           'queued_reports',
           {'local_report_id': localReportId, 'status': reportStatusFailedRetry},
@@ -709,27 +953,57 @@ class DiagnosisRepository {
         );
       }
     }
+    for (final entry in uploaded.entries) {
+      if (entry.value.length !=
+          reports.where((r) => deliveryGroup(r) == entry.key).length) {
+        continue;
+      }
+      try {
+        await _requestReportEmail(
+            client, entry.value.map((r) => r.reportId).toList());
+        await db.transaction((txn) async {
+          for (final row in entry.value) {
+            await txn.update(
+                'queued_reports',
+                {
+                  'status': reportStatusSynced,
+                  'synced_at': DateTime.now().toUtc().toIso8601String(),
+                },
+                where: 'id = ?',
+                whereArgs: [row.id]);
+          }
+        });
+        synced += entry.value.length;
+      } catch (error) {
+        lastReportSyncError = reportSyncErrorMessage(error);
+        for (final row in entry.value) {
+          await db.update('queued_reports', {'status': reportStatusFailedRetry},
+              where: 'id = ?', whereArgs: [row.id]);
+        }
+      }
+    }
     return synced;
   }
 
   Future<void> _requestReportEmail(
     SupabaseClient client,
-    String localReportId,
+    List<String> localReportIds,
   ) async {
-    try {
-      await client.functions.invoke(
-        'send-report-email',
-        body: {'local_report_id': localReportId},
-      ).timeout(const Duration(seconds: 20));
-    } catch (_) {
-      // Email delivery is tracked in Supabase. Do not block local sync if the
-      // email function is temporarily unavailable.
+    final response = await client.functions.invoke(
+      'send-report-email',
+      body: {'local_report_ids': localReportIds},
+    ).timeout(const Duration(seconds: 20));
+    if (response.status >= 300 ||
+        response.data is! Map ||
+        response.data['ok'] != true) {
+      throw StateError('Report email was not accepted.');
     }
   }
 
   Future<String?> _uploadReportImage({
     required SupabaseClient client,
     required String localReportId,
+    required String farmerName,
     required String? imagePath,
   }) async {
     if (imagePath == null || imagePath.trim().isEmpty) return null;
@@ -737,7 +1011,7 @@ class DiagnosisRepository {
     if (!await file.exists()) return null;
 
     final compressedImage = await _compressReportImage(file);
-    final storagePath = 'reports/$localReportId.webp';
+    final storagePath = reportImageStoragePath(farmerName, localReportId);
 
     await client.storage.from(reportImagesBucket).uploadBinary(
           storagePath,
@@ -777,13 +1051,17 @@ class DiagnosisRepository {
   /// Used by the History screen so it reflects real SQLite data instead of
   /// placeholder rows.
   Future<List<Map<String, Object?>>> getRecentDiagnoses(
-      {int limit = 30}) async {
+      {int? limit = 30}) async {
     final db = await _db;
+    await _ensureBatchSchema(db);
     final userId = _supabase?.auth.currentUser?.id;
     final userFilter = userId == null ? 'd.user_id IS NULL' : 'd.user_id = ?';
     return db.rawQuery('''
       SELECT
         d.id,
+        d.batch_id,
+        d.batch_total_count,
+        d.batch_image_index,
         d.disease,
         d.confidence,
         d.image_path,
@@ -819,11 +1097,13 @@ class DiagnosisRepository {
           WHERE r.diagnosis_id = d.id
           ORDER BY r.id DESC LIMIT 1
         ) AS report_synced_at
+        , (SELECT r.farmer_name FROM queued_reports r WHERE r.diagnosis_id = d.id ORDER BY r.id DESC LIMIT 1) AS report_farmer_name
+        , (SELECT r.farmer_location FROM queued_reports r WHERE r.diagnosis_id = d.id ORDER BY r.id DESC LIMIT 1) AS report_farmer_location
       FROM diagnoses d
       WHERE $userFilter
       ORDER BY d.created_at DESC
-      LIMIT ?
-    ''', userId == null ? [limit] : [userId, limit]);
+      ${limit == null ? '' : 'LIMIT ?'}
+    ''', [if (userId != null) userId, if (limit != null) limit]);
   }
 
   Future<void> markDiagnosisReportForRetry(int diagnosisId) async {
@@ -883,22 +1163,30 @@ class DiagnosisRepository {
   }
 
   Future<void> deleteDiagnosis(int diagnosisId) async {
+    await deleteDiagnoses([diagnosisId]);
+  }
+
+  Future<void> deleteDiagnoses(List<int> diagnosisIds) async {
+    if (diagnosisIds.isEmpty) return;
     final db = await _db;
+    final placeholders = List.filled(diagnosisIds.length, '?').join(',');
     final images = await db.query('diagnoses',
-        columns: ['image_path'], where: 'id = ?', whereArgs: [diagnosisId]);
-    await _deleteCachedDiagnosisImages(images);
+        columns: ['image_path'],
+        where: 'id IN ($placeholders)',
+        whereArgs: diagnosisIds);
     await db.transaction((txn) async {
       await txn.delete(
         'queued_reports',
-        where: 'diagnosis_id = ?',
-        whereArgs: [diagnosisId],
+        where: 'diagnosis_id IN ($placeholders)',
+        whereArgs: diagnosisIds,
       );
       await txn.delete(
         'diagnoses',
-        where: 'id = ?',
-        whereArgs: [diagnosisId],
+        where: 'id IN ($placeholders)',
+        whereArgs: diagnosisIds,
       );
     });
+    await _deleteCachedDiagnosisImages(images);
   }
 
   Future<void> _deleteCachedDiagnosisImages(
@@ -1046,6 +1334,7 @@ class FarmerProfile {
     required this.language,
     required this.consentEnabled,
     required this.fontScale,
+    this.avatarObjectPath,
   });
 
   final String farmerName;
@@ -1056,10 +1345,12 @@ class FarmerProfile {
   final String language;
   final bool consentEnabled;
   final double fontScale;
+  final String? avatarObjectPath;
 
   factory FarmerProfile.fromMap(Map<String, dynamic> map) {
     return FarmerProfile(
       farmerName: '${map['farmer_name'] ?? ''}',
+      avatarObjectPath: map['avatar_object_path'] as String?,
       farmerLocation: '${map['farmer_location'] ?? ''}',
       latitude: (map['latitude'] as num?)?.toDouble(),
       longitude: (map['longitude'] as num?)?.toDouble(),
@@ -1088,6 +1379,7 @@ class AppSettings {
     required this.deviceModel,
     required this.deviceBrand,
     required this.androidVersion,
+    this.avatarPath = '',
   });
 
   final String language;
@@ -1105,6 +1397,7 @@ class AppSettings {
   final String deviceModel;
   final String deviceBrand;
   final String androidVersion;
+  final String avatarPath;
 
   factory AppSettings.fromMap(Map<String, String> map) {
     return AppSettings(
@@ -1113,6 +1406,7 @@ class AppSettings {
       termsAccepted: map['terms_accepted'] == 'true',
       fontScale: double.tryParse(map['font_scale'] ?? '') ?? 1,
       farmerName: map['farmer_name'] ?? '',
+      avatarPath: map['avatar_path'] ?? '',
       farmerLocation: map['farmer_location'] ?? '',
       latitude: double.tryParse(map['latitude'] ?? ''),
       longitude: double.tryParse(map['longitude'] ?? ''),
@@ -1133,6 +1427,7 @@ class AppSettings {
       'terms_accepted': '$termsAccepted',
       'font_scale': '$fontScale',
       'farmer_name': farmerName,
+      'avatar_path': avatarPath,
       'farmer_location': farmerLocation,
       'latitude': latitude?.toString() ?? '',
       'longitude': longitude?.toString() ?? '',

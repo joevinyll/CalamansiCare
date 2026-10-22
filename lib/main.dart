@@ -1,20 +1,29 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:camera/camera.dart';
+import 'package:sticky_headers/sticky_headers.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show AuthChangeEvent;
 
 import 'data/diagnosis_repository.dart';
 import 'data/treatment_content.dart';
+import 'data/community_repository.dart';
+import 'data/community_time.dart';
 import 'disease_classifier.dart';
 
 part 'features/auth/auth_screens.dart';
 part 'features/diagnosis/diagnosis_screens.dart';
+part 'features/diagnosis/capture_screen.dart';
+part 'features/diagnosis/batch_results_screen.dart';
+part 'features/diagnosis/batch_history_screen.dart';
 part 'features/settings/settings_screen.dart';
 part 'features/community/community_screens.dart';
+part 'features/community/community_feed.dart';
 part 'widgets/shared_widgets.dart';
 
 Future<void> main() async {
@@ -1406,7 +1415,7 @@ class AppState extends ChangeNotifier {
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   StreamSubscription<dynamic>? _authSubscription;
   Timer? _connectivityPollTimer;
-  bool _isCheckingConnectivity = false;
+  Future<void>? _connectivityCheck;
   int _accountGeneration = 0;
   Future<void>? _accountCleanup;
 
@@ -1418,6 +1427,7 @@ class AppState extends ChangeNotifier {
   bool isDetectingLocation = false;
   double fontScale = 1;
   String farmerName = '';
+  String avatarPath = '';
   String farmerLocation = '';
   double? latitude;
   double? longitude;
@@ -1460,6 +1470,7 @@ class AppState extends ChangeNotifier {
     termsAccepted = settings.termsAccepted;
     fontScale = settings.fontScale.clamp(.9, 1.3);
     farmerName = settings.farmerName;
+    avatarPath = settings.avatarPath;
     farmerLocation = settings.farmerLocation;
     latitude = settings.latitude;
     longitude = settings.longitude;
@@ -1498,6 +1509,7 @@ class AppState extends ChangeNotifier {
       termsAccepted: termsAccepted,
       fontScale: fontScale,
       farmerName: farmerName,
+      avatarPath: avatarPath,
       farmerLocation: farmerLocation,
       latitude: latitude,
       longitude: longitude,
@@ -1525,24 +1537,21 @@ class AppState extends ChangeNotifier {
     );
   }
 
-  Future<void> checkConnectivityAndSync() async {
-    if (_isCheckingConnectivity) return;
-    _isCheckingConnectivity = true;
-    try {
-      final result = await Connectivity().checkConnectivity();
-      final hasNetwork = result.any((item) => item != ConnectivityResult.none);
-      final hasInternet = hasNetwork && await _hasUsableInternet();
-      final wasOnline = isOnline;
-      isOnline = hasInternet;
-      if (wasOnline != isOnline) notifyListeners();
-      if (isOnline) {
-        await DiagnosisRepository.instance.syncSettings();
-        await DiagnosisRepository.instance.syncQueuedReports();
-      }
-      await refreshStats();
-    } finally {
-      _isCheckingConnectivity = false;
+  Future<void> checkConnectivityAndSync() => _connectivityCheck ??=
+      _performConnectivityCheck().whenComplete(() => _connectivityCheck = null);
+
+  Future<void> _performConnectivityCheck() async {
+    final result = await Connectivity().checkConnectivity();
+    final hasNetwork = result.any((item) => item != ConnectivityResult.none);
+    final hasInternet = hasNetwork && await _hasUsableInternet();
+    final wasOnline = isOnline;
+    isOnline = hasInternet;
+    if (wasOnline != isOnline) notifyListeners();
+    if (isOnline) {
+      await DiagnosisRepository.instance.syncSettings();
+      await DiagnosisRepository.instance.syncQueuedReports();
     }
+    await refreshStats();
   }
 
   Future<bool> _hasUsableInternet() async {
@@ -1641,6 +1650,19 @@ class AppState extends ChangeNotifier {
           : language;
       consentEnabled = profile.consentEnabled;
       fontScale = profile.fontScale;
+      if (avatarPath.isEmpty) {
+        try {
+          final restoredAvatar = await DiagnosisRepository.instance
+              .restoreProfileAvatar(profile.avatarObjectPath);
+          if (generation != _accountGeneration ||
+              userId != DiagnosisRepository.instance.currentUser?.id) {
+            return;
+          }
+          if (restoredAvatar != null) avatarPath = restoredAvatar;
+        } catch (_) {
+          // Keep the other settings available if the photo cannot download.
+        }
+      }
       restoredSettings = true;
     }
     if (!hasCompleteReportProfile) {
@@ -1741,11 +1763,8 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
-    try {
-      await DiagnosisRepository.instance.signOut();
-    } finally {
-      await clearSignedOutAccount();
-    }
+    await DiagnosisRepository.instance.signOut();
+    await clearSignedOutAccount();
   }
 
   /// Also used for server-triggered sign-out and expired persisted sessions.
@@ -1776,6 +1795,7 @@ class AppState extends ChangeNotifier {
     );
     accountEmail = '';
     farmerName = '';
+    avatarPath = '';
     farmerLocation = '';
     latitude = null;
     longitude = null;
@@ -1787,9 +1807,49 @@ class AppState extends ChangeNotifier {
     queuedReportsCount = 0;
     sentReportsCount = 0;
     lastConfidence = null;
+    tabIndex = 0;
     notifyListeners();
     if (persistSettings) {
       await DiagnosisRepository.instance.clearLocalAccountData(clearedSettings);
+    }
+  }
+
+  Future<void> updateProfile(
+      {required String name,
+      required String location,
+      required String photoPath}) async {
+    final changedLocation = location != farmerLocation;
+    final updated = AppSettings.fromMap({
+      ...currentSettings().toMap(),
+      'farmer_name': name.trim(),
+      'farmer_location': location.trim(),
+      'avatar_path': photoPath,
+      if (changedLocation) ...{
+        'latitude': '',
+        'longitude': '',
+        'location_note': 'Manual location'
+      },
+    });
+    if (persistSettings) {
+      await DiagnosisRepository.instance
+          .saveSettings(updated, syncOnline: false);
+    }
+    final previousPhoto = avatarPath;
+    farmerName = updated.farmerName;
+    farmerLocation = updated.farmerLocation;
+    avatarPath = photoPath;
+    latitude = updated.latitude;
+    longitude = updated.longitude;
+    locationNote = updated.locationNote;
+    notifyListeners();
+    if (persistSettings) {
+      unawaited(
+          DiagnosisRepository.instance.syncSettings().catchError((_) => false));
+      if (previousPhoto != photoPath) {
+        try {
+          await DiagnosisRepository.instance.deleteProfileAvatar(previousPhoto);
+        } catch (_) {/* Profile is already saved. */}
+      }
     }
   }
 
@@ -1980,7 +2040,7 @@ class _CalamansiCareAppState extends State<CalamansiCareApp>
                 style: FilledButton.styleFrom(
                   minimumSize: const Size.fromHeight(52),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                 ),
               ),
@@ -1997,32 +2057,32 @@ class _CalamansiCareAppState extends State<CalamansiCareApp>
                   color: Colors.white,
                   fontSize: 14,
                   height: 1.35,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               textTheme: const TextTheme(
                 headlineLarge: TextStyle(
                   fontSize: 32,
                   height: 1.04,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                   color: CcColors.dark,
                 ),
                 headlineMedium: TextStyle(
                   fontSize: 24,
                   height: 1.12,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                   color: CcColors.dark,
                 ),
                 titleLarge: TextStyle(
                   fontSize: 20,
                   height: 1.2,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w700,
                   color: CcColors.ink,
                 ),
                 titleMedium: TextStyle(
                   fontSize: 15,
                   height: 1.25,
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w600,
                   color: CcColors.ink,
                 ),
                 bodyLarge: TextStyle(
@@ -2031,9 +2091,9 @@ class _CalamansiCareAppState extends State<CalamansiCareApp>
                   color: CcColors.ink,
                 ),
                 bodyMedium: TextStyle(
-                  fontSize: 12,
-                  height: 1.35,
-                  color: CcColors.muted,
+                  fontSize: 14,
+                  height: 1.45,
+                  color: CcColors.ink,
                 ),
               ),
             ),
@@ -2059,7 +2119,12 @@ class _CalamansiCareAppState extends State<CalamansiCareApp>
 class MainShell extends StatelessWidget {
   const MainShell({super.key});
 
-  static const screens = [HomeScreen(), HistoryScreen(), SettingsScreen()];
+  static const screens = [
+    HomeScreen(),
+    HistoryScreen(),
+    SettingsScreen(),
+    CommunityFeedScreen()
+  ];
 
   @override
   Widget build(BuildContext context) {

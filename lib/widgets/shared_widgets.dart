@@ -1,22 +1,37 @@
 part of '../main.dart';
 
 class ScreenFrame extends StatelessWidget {
-  const ScreenFrame({super.key, required this.child, this.showNav = true});
+  const ScreenFrame(
+      {super.key,
+      required this.child,
+      this.showNav = true,
+      this.allowCameraOverlap = false});
 
   final Widget child;
   final bool showNav;
+  final bool allowCameraOverlap;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: CcColors.bg,
+      extendBody: showNav,
       body: SafeArea(
+        bottom: !showNav,
         child: Align(
           alignment: Alignment.topCenter,
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 430),
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+              padding: EdgeInsets.fromLTRB(
+                24,
+                16,
+                24,
+                showNav
+                    ? (allowCameraOverlap ? 78 : 112) +
+                        MediaQuery.viewPaddingOf(context).bottom
+                    : 16,
+              ),
               child: child,
             ),
           ),
@@ -47,36 +62,84 @@ class AppBottomNav extends StatelessWidget {
         heightFactor: 1,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 430),
-          child: Container(
-            height: 74,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-            decoration: const BoxDecoration(color: CcColors.bgAlt),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: SizedBox(
+            height: 104,
+            child: Stack(
               children: [
-                NavDot(
-                  label: 'Home',
-                  icon: Icons.home_rounded,
-                  selected: state.tabIndex == 0,
-                  onTap: () => _openTab(context, 0),
+                Positioned.fill(
+                  top: 26,
+                  child: Material(
+                    color: const Color(0xFF194F29),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Row(children: [
+                      Expanded(
+                          child: NavDot(
+                        label: 'Home',
+                        icon: Icons.home_rounded,
+                        selected: state.tabIndex == 0,
+                        onTap: () => _openTab(context, 0),
+                      )),
+                      Expanded(
+                          child: NavDot(
+                        label: 'History',
+                        icon: Icons.history_rounded,
+                        selected: state.tabIndex == 1,
+                        onTap: () => _openTab(context, 1),
+                      )),
+                      const Expanded(child: SizedBox()),
+                      Expanded(
+                          child: NavDot(
+                        label: 'Community',
+                        icon: Icons.groups_rounded,
+                        selected: state.tabIndex == 3,
+                        onTap: () => _openTab(context, 3),
+                      )),
+                      Expanded(
+                          child: NavDot(
+                        label: 'Settings',
+                        icon: Icons.settings_rounded,
+                        selected: state.tabIndex == 2,
+                        onTap: () => _openTab(context, 2),
+                      )),
+                    ]),
+                  ),
                 ),
-                NavDot(
-                  label: 'Check',
-                  icon: Icons.add_circle_rounded,
-                  selected: false,
-                  onTap: () => go(context, const CaptureScreen()),
-                ),
-                NavDot(
-                  label: 'History',
-                  icon: Icons.history_rounded,
-                  selected: state.tabIndex == 1,
-                  onTap: () => _openTab(context, 1),
-                ),
-                NavDot(
-                  label: 'Settings',
-                  icon: Icons.settings_rounded,
-                  selected: state.tabIndex == 2,
-                  onTap: () => _openTab(context, 2),
+                Align(
+                  alignment: Alignment.topCenter,
+                  child: Semantics(
+                    label: context.t('Camera'),
+                    button: true,
+                    child: Tooltip(
+                      message: context.t('Camera'),
+                      child: Container(
+                        width: 76,
+                        height: 76,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                              color: const Color(0xFFD7EF91), width: 4),
+                          color: const Color(0xFF347E42),
+                          boxShadow: const [
+                            BoxShadow(
+                                color: Color(0x24000000),
+                                blurRadius: 8,
+                                offset: Offset(0, 3))
+                          ],
+                        ),
+                        child: Material(
+                          color: Colors.transparent,
+                          shape: const CircleBorder(),
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () => go(context, const CaptureScreen()),
+                            child: const Icon(Icons.camera_alt_rounded,
+                                color: Colors.white, size: 30),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -103,43 +166,69 @@ class NavDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = selected ? CcColors.green : CcColors.muted;
-    return InkWell(
-      borderRadius: BorderRadius.circular(18),
-      onTap: onTap,
-      child: SizedBox(
-        width: 58,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: selected ? CcColors.green : CcColors.soft,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                icon,
-                color: selected ? Colors.white : color,
-                size: 20,
-              ),
+    final color = selected ? const Color(0xFFD7EF91) : Colors.white;
+    final duration = MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : const Duration(milliseconds: 180);
+    return Semantics(
+      selected: selected,
+      button: true,
+      child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onTap,
+          child: SizedBox(
+            height: 78,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                AnimatedContainer(
+                  duration: duration,
+                  curve: Curves.easeOutCubic,
+                  width: 48,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: selected
+                        ? Colors.white.withValues(alpha: .12)
+                        : Colors.transparent,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  alignment: Alignment.center,
+                  child: AnimatedScale(
+                      duration: duration,
+                      scale: selected ? 1.08 : 1,
+                      child: Icon(
+                        icon,
+                        color: color,
+                        size: 26,
+                      )),
+                ),
+                const SizedBox(height: 3),
+                Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          context.t(label),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: color,
+                            fontSize: 12,
+                            fontWeight:
+                                selected ? FontWeight.w700 : FontWeight.w500,
+                          ),
+                        ))),
+                const SizedBox(height: 5),
+                AnimatedContainer(
+                    duration: duration,
+                    width: selected ? 16 : 0,
+                    height: 3,
+                    decoration: BoxDecoration(
+                        color: const Color(0xFFD7EF91),
+                        borderRadius: BorderRadius.circular(2))),
+              ],
             ),
-            const SizedBox(height: 3),
-            Text(
-              context.t(label),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: color,
-                fontSize: 9,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ],
-        ),
-      ),
+          )),
     );
   }
 }
@@ -382,7 +471,9 @@ class DarkActionCard extends StatelessWidget {
                           minimumSize: const Size(0, 42),
                           padding: const EdgeInsets.symmetric(horizontal: 10),
                           textStyle: const TextStyle(
-                              fontSize: 12, fontWeight: FontWeight.w900),
+                              fontFamily: 'Roboto',
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600),
                         ),
                         child: Text(
                           context.t(buttonLabel),
@@ -401,7 +492,9 @@ class DarkActionCard extends StatelessWidget {
                           minimumSize: const Size(0, 42),
                           padding: const EdgeInsets.symmetric(horizontal: 10),
                           textStyle: const TextStyle(
-                              fontSize: 12, fontWeight: FontWeight.w900),
+                              fontFamily: 'Roboto',
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600),
                         ),
                         child: Text(
                           context.t(secondaryLabel),
@@ -436,15 +529,8 @@ class SectionCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: CcColors.card,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(8),
         border: Border.all(color: CcColors.line),
-        boxShadow: [
-          BoxShadow(
-            color: CcColors.dark.withValues(alpha: .04),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -489,9 +575,10 @@ class PrimaryButton extends StatelessWidget {
           foregroundColor: Colors.white,
           disabledBackgroundColor: CcColors.line,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(8),
           ),
-          textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+          textStyle: const TextStyle(
+              fontFamily: 'Roboto', fontSize: 14, fontWeight: FontWeight.w600),
         ),
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 160),
@@ -563,9 +650,10 @@ class OutlineAction extends StatelessWidget {
           backgroundColor: backgroundColor,
           side: BorderSide(color: borderColor),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(8),
           ),
-          textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900),
+          textStyle: const TextStyle(
+              fontFamily: 'Roboto', fontSize: 14, fontWeight: FontWeight.w600),
         ),
         child: AnimatedSwitcher(
           duration: const Duration(milliseconds: 160),

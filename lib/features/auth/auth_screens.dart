@@ -245,7 +245,8 @@ class _AuthLandingScreenState extends State<AuthLandingScreen> {
     final isKeyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
     return ScreenFrame(
       showNav: false,
-      child: Column(
+      child: SingleChildScrollView(
+          child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           TopLine(
@@ -259,46 +260,47 @@ class _AuthLandingScreenState extends State<AuthLandingScreen> {
             ),
           ),
           const SizedBox(height: 16),
-          Expanded(
-            child: state.isSignedIn
-                ? SectionCard(
-                    title: 'Account connected',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          state.accountEmail,
-                          style: const TextStyle(
-                            color: CcColors.ink,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w800,
-                            height: 1.35,
-                          ),
+          state.isSignedIn
+              ? SectionCard(
+                  title: 'Account connected',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        state.accountEmail,
+                        style: const TextStyle(
+                          color: CcColors.ink,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          height: 1.35,
                         ),
-                        const SizedBox(height: 12),
-                        PrimaryButton(
-                          label: 'Sign out',
-                          icon: Icons.logout_rounded,
-                          color: CcColors.red,
-                          onPressed: () async {
-                            final confirmed =
-                                await showSignOutConfirmation(context);
-                            if (!confirmed || !context.mounted) return;
-                            await state.signOut();
-                            state.setTab(0);
-                            if (context.mounted) {
-                              replaceWith(context, const WelcomeScreen());
-                            }
-                          },
-                        ),
-                      ],
-                    ),
-                  )
-                : AuthPanel(
-                    mode: _mode,
-                    onModeChanged: (mode) => setState(() => _mode = mode),
+                      ),
+                      const SizedBox(height: 12),
+                      PrimaryButton(
+                        label: 'Sign out',
+                        icon: Icons.logout_rounded,
+                        color: CcColors.red,
+                        onPressed: () async {
+                          final confirmed =
+                              await showSignOutConfirmation(context);
+                          if (!confirmed || !context.mounted) return;
+                          await state.signOut();
+                          state.setTab(0);
+                          if (context.mounted) {
+                            Navigator.of(context).pushAndRemoveUntil(
+                                MaterialPageRoute<void>(
+                                    builder: (_) => const WelcomeScreen()),
+                                (_) => false);
+                          }
+                        },
+                      ),
+                    ],
                   ),
-          ),
+                )
+              : AuthPanel(
+                  mode: _mode,
+                  onModeChanged: (mode) => setState(() => _mode = mode),
+                ),
           if (!isKeyboardOpen) ...[
             const SizedBox(height: 14),
             if (!state.isSignedIn) ...[
@@ -308,16 +310,16 @@ class _AuthLandingScreenState extends State<AuthLandingScreen> {
               ),
               const SizedBox(height: 14),
             ],
-            PrimaryButton(
+            OutlineAction(
               label: state.isSignedIn ? 'Go to Dashboard' : 'Continue offline',
               icon: state.isSignedIn
                   ? Icons.dashboard_rounded
                   : Icons.eco_rounded,
-              onPressed: () => replaceWith(context, const MainShell()),
+              onTap: () => replaceWith(context, const MainShell()),
             ),
           ],
         ],
-      ),
+      )),
     );
   }
 }
@@ -351,38 +353,61 @@ class AuthPanel extends StatelessWidget {
         children: [
           AuthModeToggle(mode: mode, onChanged: onModeChanged),
           const SizedBox(height: 12),
-          OutlineAction(
-            label: 'Sign in with Google',
-            icon: Icons.g_mobiledata_rounded,
-            onTap: () async {
-              try {
-                await state.signInWithGoogle();
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        context.t(
-                          'Google sign-in opened. Complete it in the browser.',
+          SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                icon: Image.asset('assets/google-g.png',
+                    width: 20, height: 20, excludeFromSemantics: true),
+                label: Text(context.t('Sign in with Google')),
+                style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(52),
+                    backgroundColor: Colors.white,
+                    foregroundColor: CcColors.ink,
+                    textStyle: const TextStyle(
+                        fontFamily: 'Roboto',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500),
+                    side: const BorderSide(color: CcColors.muted),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8))),
+                onPressed: () async {
+                  try {
+                    await state.signInWithGoogle();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            context.t(
+                              'Google sign-in opened. Complete it in the browser.',
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  );
-                }
-              } catch (_) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        context.t(
-                          'Google sign-in is not ready yet. Check Supabase Google setup.',
+                      );
+                    }
+                  } catch (_) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            context.t(
+                              'Google sign-in is not ready yet. Check Supabase Google setup.',
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  );
-                }
-              }
-            },
-          ),
+                      );
+                    }
+                  }
+                },
+              )),
+          const SizedBox(height: 12),
+          const Row(children: [
+            Expanded(child: Divider()),
+            Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: Text('or use email',
+                    style: TextStyle(fontSize: 12, color: CcColors.muted))),
+            Expanded(child: Divider())
+          ]),
           const SizedBox(height: 12),
           AuthFormContent(
             mode: mode,
@@ -404,6 +429,13 @@ class AuthModeToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SegmentedButton<AuthFormMode>(
+      style: ButtonStyle(
+          shape: WidgetStatePropertyAll(
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+          textStyle: const WidgetStatePropertyAll(TextStyle(
+              fontFamily: 'Roboto',
+              fontSize: 14,
+              fontWeight: FontWeight.w600))),
       segments: [
         ButtonSegment(
           value: AuthFormMode.signIn,
@@ -797,11 +829,17 @@ class AuthTextField extends StatelessWidget {
       keyboardType: keyboardType,
       obscureText: obscureText,
       textCapitalization: textCapitalization,
+      style: const TextStyle(fontSize: 15, color: CcColors.ink),
       decoration: InputDecoration(
         labelText: context.t(label),
         prefixIcon: Icon(icon),
         suffixIcon: suffixIcon,
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+        prefixIconColor: CcColors.green,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
   }

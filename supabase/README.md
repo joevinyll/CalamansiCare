@@ -140,3 +140,60 @@ Auth and calls the ownership, consent, rate-limit, and replay checks in
 `claim_report_email` before accessing provider credentials. The recipient is
 the address entered on the report and is not independently verified as an
 official office address.
+
+Report emails include the consented farm location, recipient, report ID,
+diagnosis, confidence, uploaded image, disease type, risk and priority. Device
+identifiers are not displayed. High priority follows the app's HLB/Citrus Canker
+classification; other recognized diseases use Medium, and healthy results use
+Routine / No Risk without treatment sections. These are app triage labels, not
+an official severity assessment. Delivery is one email per scan batch and
+recipient (up to ten images), after all queued images in that batch upload.
+Legacy scans without a batch ID remain individual reports.
+
+The backend English guidance in `functions/send-report-email/care-content.ts`
+mirrors `lib/data/treatment_content.dart`. Verify content parity and templates
+with `node --test supabase/functions/send-report-email/template.test.mjs` from
+the repository root. Deploy the updated `send-report-email` function, including
+its imported content module, for changes to reach received emails. A Flutter
+hot reload or Android build does not deploy email templates.
+
+### Batch email rollout
+
+1. Apply `migrations/20261022000000_batch_report_email.sql` in the SQL Editor
+   of the app's Supabase project. It adds an ownership/consent-checked atomic
+   batch claim, not a new report table. Do not rerun older setup SQL.
+2. Deploy `send-report-email` with JWT verification enabled. Deploy the
+   migration first: the updated function requires `claim_batch_report_email`.
+3. Rebuild/restart the updated Flutter app. Old app versions still request
+   single-image deliveries; only the new client submits the full batch.
+4. Send a new batch and confirm one message containing all images. Existing
+   emails cannot be merged retroactively.
+
+Batch claims serialize per user, validate a single recipient and 1-10 unique
+owned/consented report IDs, and rate-limit to ten delivery claims per hour.
+All image claims are inserted together. Retries cannot re-email claimed
+images. An ambiguous provider failure or partially claimed legacy batch needs
+operator review rather than an automatic replay that could spam recipients.
+The client retries uploads before requesting delivery and retains a failed
+local queue state if the function rejects the batch. An already-claimed
+response acknowledges an existing delivery attempt, not guaranteed receipt.
+
+### Profile avatar persistence
+
+For farmer-named report image folders, apply
+`migrations/20261023010000_named_report_image_paths.sql` before using the updated
+app. New objects use `reports/farmer-name/report-<opaque-id>.webp`; IDs are
+SHA-256 hashes of the stable report identifier, so device identifiers and emails
+are not exposed in the filename. Farmer names remain visible in public links.
+Existing objects and emailed image links are not renamed or removed. The
+migration preserves owner-only writes and also accepts the legacy flat paths.
+
+Apply `migrations/20261022010000_profile_avatars.sql` to enable account avatar
+restore alongside the other farmer profile settings. It adds a private
+`profile-avatars` bucket and `farmer_profiles.avatar_object_path`. Storage
+policies allow users to access only their own user-ID folder. Local file paths
+are never stored in the remote profile. Photos are re-encoded before upload.
+The current device keeps its local photo or pending removal; a fresh sign-in
+on a device without a local avatar downloads the account photo. Signing out
+clears the local cache, not the account's saved photo. Migration and real
+upload/restore behavior must be verified against the target project.
