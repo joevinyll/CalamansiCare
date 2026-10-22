@@ -898,11 +898,8 @@ class _CommunityAudiencePicker extends StatelessWidget {
   final CommunityAudience value;
   final ValueChanged<CommunityAudience>? onChanged;
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-      decoration: BoxDecoration(
-          color: const Color(0xFFF3F8F2),
-          border: Border.all(color: const Color(0xFFCDDCCA)),
-          borderRadius: BorderRadius.circular(8)),
+  Widget build(BuildContext context) => SizedBox(
+      width: 160,
       child: Theme(
           data: Theme.of(context).copyWith(focusColor: const Color(0xFFEAF3E7)),
           child: DropdownButton<CommunityAudience>(
@@ -915,24 +912,24 @@ class _CommunityAudiencePicker extends StatelessWidget {
               dropdownColor: Colors.white,
               borderRadius: BorderRadius.circular(8),
               elevation: 4,
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+              padding: EdgeInsets.zero,
               focusColor: CcColors.soft,
               icon: const Icon(Icons.expand_more,
-                  size: 18, color: CcColors.green),
+                  size: 18, color: CcColors.muted),
               style: Theme.of(context)
                   .textTheme
                   .bodySmall
-                  ?.copyWith(fontSize: 12, color: CcColors.green),
+                  ?.copyWith(fontSize: 12, color: CcColors.muted),
               selectedItemBuilder: (_) => [
                     for (final audience in CommunityAudience.values)
                       Row(children: [
                         Icon(
                             audience == CommunityAudience.onlyMe
                                 ? Icons.lock_outline
-                                : Icons.groups_outlined,
-                            size: 18,
-                            color: CcColors.green),
-                        const SizedBox(width: 8),
+                                : Icons.public,
+                            size: 16,
+                            color: CcColors.muted),
+                        const SizedBox(width: 6),
                         Expanded(
                             child: Text(
                                 audience == CommunityAudience.onlyMe
@@ -941,7 +938,7 @@ class _CommunityAudiencePicker extends StatelessWidget {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
-                                    fontWeight: FontWeight.w600))),
+                                    fontWeight: FontWeight.w400))),
                       ]),
                   ],
               onChanged: onChanged == null
