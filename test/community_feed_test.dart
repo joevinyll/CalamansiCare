@@ -447,6 +447,7 @@ void main() {
     repo.notificationRows = [
       {
         'id': 'notification-1',
+        'actor_id': 'user-2',
         'actor_name': 'Jose Reyes',
         'kind': 'comment',
         'post_id': 'post-1',
@@ -471,6 +472,16 @@ void main() {
     expect(find.textContaining('2026'), findsOneWidget);
     expect(find.text('Jose Reyes commented on your post'), findsOneWidget);
     expect(find.text('Our calamansi harvest this morning!'), findsNothing);
+    expect(find.byType(CircleAvatar), findsOneWidget);
+    await tester.tap(find.byTooltip('View profile'));
+    await tester.pumpAndSettle();
+    expect(
+        find.descendant(
+            of: find.byType(Dialog), matching: find.text('Jose Reyes')),
+        findsOneWidget);
+    expect(repo.readId, isNull);
+    await tester.tap(find.byTooltip('Close profile'));
+    await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     await tester.tap(find.text('Jose Reyes commented on your post'));
     await tester.pumpAndSettle();

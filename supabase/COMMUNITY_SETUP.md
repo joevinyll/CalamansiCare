@@ -2,6 +2,12 @@
 
 ## Notifications
 
+For commenter/actor avatars, also run
+`supabase/migrations/20261023100000_notification_actor_profiles.sql` after
+the notifications migration. It backfills existing events and syncs name/photo
+changes from Settings. Avatar access is restricted to visible notifications;
+the bucket stays private. Missing photos fall back to initials.
+
 After the earlier Community migrations, run
 `supabase/migrations/20261023090000_community_notifications.sql` once.
 This creates recipient-only notification rows and Realtime publication, with

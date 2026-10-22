@@ -1573,11 +1573,16 @@ class _CommunityActivityScreenState extends State<CommunityActivityScreen> {
                           child: ListTile(
                               contentPadding: const EdgeInsets.symmetric(
                                   horizontal: 16, vertical: 10),
-                              leading: Icon(
-                                  row['kind'].toString().startsWith('like')
-                                      ? Icons.favorite_outline
-                                      : Icons.chat_bubble_outline,
-                                  color: CcColors.green),
+                              leading: _CommunityAvatar(
+                                  communityDisplayName(
+                                      '${row['actor_name'] ?? ''}'),
+                                  repo: widget.repo,
+                                  author: {
+                                    'user_id': row['actor_id'],
+                                    'author_name': row['actor_name'],
+                                    'author_avatar_path':
+                                        row['actor_avatar_path'],
+                                  }),
                               title: Text(communityNotificationText(row),
                                   style: TextStyle(
                                       fontSize: 14,
