@@ -64,6 +64,22 @@ class CommunityRepository {
   CommunityRepository(this.client);
   final SupabaseClient client;
   String get userId => client.auth.currentUser!.id;
+  Stream<List<Map<String, dynamic>>> notifications() => client
+      .from('community_notifications')
+      .stream(primaryKey: ['id'])
+      .eq('recipient_id', userId)
+      .order('created_at', ascending: false);
+  Future<void> readNotification(String id) async {
+    await client
+        .from('community_notifications')
+        .update({'read_at': DateTime.now().toUtc().toIso8601String()})
+        .eq('id', id)
+        .eq('recipient_id', userId)
+        .isFilter('read_at', null);
+  }
+
+  Future<Map<String, dynamic>?> notificationPost(String id) =>
+      client.from('community_posts').select().eq('id', id).maybeSingle();
   Future<String?> memberSince(String memberId) async {
     if (memberId == client.auth.currentUser?.id) {
       return client.auth.currentUser?.createdAt;

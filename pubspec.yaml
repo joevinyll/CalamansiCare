@@ -26,6 +26,7 @@ dependencies:
   path_provider: 2.1.5
   camera: ^0.12.1
   sticky_headers: ^0.3.0+2
+  audioplayers: ^6.8.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -44,6 +45,7 @@ flutter:
       fonts:
         - asset: assets/fonts/LibreBaskerville.ttf
   assets:
+    - assets/community-ding.wav
     - assets/google-g.png
     # Put the exported TensorFlow Lite model at this path. See assets/README.md.
     - assets/model.tflite

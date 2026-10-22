@@ -1,5 +1,20 @@
 # Community Feed Setup
 
+## Notifications
+
+After the earlier Community migrations, run
+`supabase/migrations/20261023090000_community_notifications.sql` once.
+This creates recipient-only notification rows and Realtime publication, with
+server triggers for other members' likes, comments, comment likes, and replies.
+No synthetic notifications are generated for old posts or zero activity.
+Self-actions are ignored; removed likes/comments/posts remove their events.
+Open a notification to mark it read and reduce the bell badge. Read state is
+stored per account. Existing notifications load silently; new events ding while
+the Community screen is mounted and the app is foreground. This is not
+background/terminated-app push delivery. Device audio settings can mute sound.
+Fully restart the app after installing the new audio plugin.
+Verify with two accounts, including private-post RLS and unread persistence.
+
 ## Feed Fails Despite Working Internet
 
 If Supabase returns `42703: column community_posts.visibility does not exist`,

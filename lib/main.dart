@@ -13,6 +13,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' show AuthChangeEvent;
 import 'data/diagnosis_repository.dart';
 import 'data/treatment_content.dart';
 import 'data/community_repository.dart';
+import 'data/community_notifications.dart';
 import 'data/community_time.dart';
 import 'disease_classifier.dart';
 

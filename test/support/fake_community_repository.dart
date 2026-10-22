@@ -22,6 +22,24 @@ class FakeCommunityRepository extends CommunityRepository {
   Future<String> photoUrl(String path) async =>
       throw const FormatException('Fixture photo unavailable');
   final changes = StreamController<List<Map<String, dynamic>>>.broadcast();
+  final notificationChanges =
+      StreamController<List<Map<String, dynamic>>>.broadcast();
+  List<Map<String, dynamic>> notificationRows = [];
+  String? readId;
+  @override
+  Stream<List<Map<String, dynamic>>> notifications() async* {
+    yield notificationRows;
+    yield* notificationChanges.stream;
+  }
+
+  @override
+  Future<void> readNotification(String id) async {
+    readId = id;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> notificationPost(String id) async =>
+      rows.where((p) => p['id'] == id).firstOrNull;
   List<Map<String, dynamic>> rows = [
     {
       'id': 'post-1',
@@ -113,6 +131,7 @@ class FakeCommunityRepository extends CommunityRepository {
   }
 
   Future<void> close() async {
+    unawaited(notificationChanges.close());
     unawaited(changes.close());
     unawaited(client.dispose());
   }

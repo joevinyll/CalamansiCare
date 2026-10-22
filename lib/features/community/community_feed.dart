@@ -13,9 +13,8 @@ Future<void> _communityAction(
 }
 
 class _CommunityTimestamp extends StatefulWidget {
-  const _CommunityTimestamp(this.value, {this.posted = false});
+  const _CommunityTimestamp(this.value);
   final Object? value;
-  final bool posted;
   @override
   State<_CommunityTimestamp> createState() => _CommunityTimestampState();
 }
@@ -70,9 +69,7 @@ class _CommunityTimestampState extends State<_CommunityTimestamp>
   Widget build(BuildContext context) {
     final time = communityTime(widget.value);
     return Text(
-        time.exact.isEmpty
-            ? time.relative
-            : '${widget.posted ? 'Posted ' : '${time.relative} · '}${time.exact}',
+        time.exact.isEmpty ? time.relative : '${time.relative} · ${time.exact}',
         style: const TextStyle(fontSize: 12, color: CcColors.muted));
   }
 }
@@ -415,6 +412,7 @@ class CommunityFeedScreen extends StatefulWidget {
 class _CommunityFeedScreenState extends State<CommunityFeedScreen>
     with WidgetsBindingObserver {
   CommunityRepository? _repo;
+  CommunityNotifications? _notifications;
   Stream<List<Map<String, dynamic>>>? _posts, _likes;
   String _search = '';
   bool _searching = false;
@@ -435,6 +433,7 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _notifications?.dispose();
     super.dispose();
   }
 
@@ -479,6 +478,9 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen>
       _repo = CommunityRepository(DiagnosisRepository.instance.communityClient);
       _posts = _loadPosts();
       _likes = _repo!.likes();
+    }
+    if (_repo != null && !widget.myPosts) {
+      _notifications ??= CommunityNotifications(_repo!);
     }
   }
 
@@ -533,11 +535,20 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen>
                   icon: const Icon(Icons.search),
                   onPressed: () => setState(() => _searching = !_searching)),
               if (!widget.myPosts)
-                IconButton(
-                    tooltip: 'Community activity',
-                    icon: const Icon(Icons.notifications_outlined),
-                    onPressed: () =>
-                        go(context, CommunityActivityScreen(repo: _repo!))),
+                AnimatedBuilder(
+                    animation: _notifications!,
+                    builder: (context, _) => IconButton(
+                        tooltip: 'Notifications',
+                        icon: Badge(
+                            isLabelVisible: _notifications!.unread > 0,
+                            label: Text(_notifications!.unread > 99
+                                ? '99+'
+                                : '${_notifications!.unread}'),
+                            child: const Icon(Icons.notifications_outlined)),
+                        onPressed: () => go(
+                            context,
+                            CommunityActivityScreen(
+                                repo: _repo!, notifications: _notifications)))),
               if (!widget.myPosts)
                 IconButton(
                     tooltip: 'My posts',
@@ -1507,144 +1518,97 @@ class _CommunityCommentsScreenState extends State<CommunityCommentsScreen> {
 }
 
 class CommunityActivityScreen extends StatefulWidget {
-  const CommunityActivityScreen({super.key, required this.repo});
+  const CommunityActivityScreen(
+      {super.key, required this.repo, this.notifications});
   final CommunityRepository repo;
+  final CommunityNotifications? notifications;
   @override
   State<CommunityActivityScreen> createState() =>
       _CommunityActivityScreenState();
 }
 
 class _CommunityActivityScreenState extends State<CommunityActivityScreen> {
-  late final _posts = widget.repo.myPosts();
+  late final _notifications =
+      widget.notifications ?? CommunityNotifications(widget.repo);
+  @override
+  void dispose() {
+    if (widget.notifications == null) _notifications.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(title: const Text('Community activity')),
+      appBar: AppBar(title: const Text('Notifications')),
       backgroundColor: CcColors.bg,
       body: SafeArea(
-          child: StreamBuilder<List<Map<String, dynamic>>>(
-              stream: _posts,
-              builder: (context, posts) {
-                if (posts.hasError) {
-                  return const Center(
-                      child: Text('Activity could not load. Try again later.'));
+          child: AnimatedBuilder(
+              animation: _notifications,
+              builder: (context, _) {
+                if (_notifications.error != null) {
+                  return _CommunityError(
+                      error: _notifications.error,
+                      onRetry: _notifications.retry);
                 }
-                if (!posts.hasData) {
+                if (!_notifications.loaded) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                final own = posts.data!
-                    .where((p) => p['user_id'] == widget.repo.userId)
-                    .toList();
-                if (own.isEmpty) {
-                  return const Center(
-                      child: Text('No activity on your posts yet.'));
+                if (_notifications.rows.isEmpty) {
+                  return const Center(child: Text('No notifications yet.'));
                 }
-                return ListView(padding: const EdgeInsets.all(16), children: [
-                  for (final p in own)
-                    Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: Card(
-                            margin: EdgeInsets.zero,
-                            elevation: 0,
-                            color: Colors.white,
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                                side: const BorderSide(color: Colors.black12)),
-                            clipBehavior: Clip.antiAlias,
-                            child: InkWell(
-                              onTap: () => go(
-                                  context,
-                                  CommunityCommentsScreen(
-                                      repo: widget.repo, post: p)),
-                              child: Padding(
-                                  padding: const EdgeInsets.all(16),
-                                  child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                            crossAxisAlignment:
-                                                CrossAxisAlignment.start,
-                                            children: [
-                                              Container(
-                                                  padding:
-                                                      const EdgeInsets.all(10),
-                                                  decoration: BoxDecoration(
-                                                      color: CcColors.soft,
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                              6)),
-                                                  child: const Icon(
-                                                      Icons.forum_outlined,
-                                                      color: CcColors.green,
-                                                      size: 22)),
-                                              const SizedBox(width: 12),
-                                              Expanded(
-                                                  child: Column(
-                                                      crossAxisAlignment:
-                                                          CrossAxisAlignment
-                                                              .start,
-                                                      children: [
-                                                    Text(
-                                                        p['body']
-                                                                .toString()
-                                                                .isEmpty
-                                                            ? 'Photo post'
-                                                            : p['body'],
-                                                        maxLines: 2,
-                                                        overflow: TextOverflow
-                                                            .ellipsis,
-                                                        style: const TextStyle(
-                                                            fontSize: 16,
-                                                            fontWeight:
-                                                                FontWeight
-                                                                    .w600)),
-                                                    const SizedBox(height: 6),
-                                                    _CommunityTimestamp(
-                                                        p['created_at'],
-                                                        posted: true),
-                                                  ])),
-                                              const SizedBox(width: 4),
-                                              const Icon(Icons.chevron_right,
-                                                  color: CcColors.muted,
-                                                  size: 20),
-                                            ]),
-                                        const Divider(height: 24),
-                                        Wrap(
-                                            spacing: 20,
-                                            runSpacing: 8,
-                                            children: [
-                                              Row(
-                                                  mainAxisSize:
-                                                      MainAxisSize.min,
-                                                  children: [
-                                                    const Icon(
-                                                        Icons.favorite_border,
-                                                        size: 18,
-                                                        color: CcColors.green),
-                                                    const SizedBox(width: 6),
-                                                    Text(
-                                                        '${p['like_count'] ?? 0} likes',
-                                                        style: const TextStyle(
-                                                            fontSize: 13)),
-                                                  ]),
-                                              Row(
-                                                  mainAxisSize:
-                                                      MainAxisSize.min,
-                                                  children: [
-                                                    const Icon(
-                                                        Icons
-                                                            .chat_bubble_outline,
-                                                        size: 18,
-                                                        color: CcColors.green),
-                                                    const SizedBox(width: 6),
-                                                    Text(
-                                                        '${p['comment_count'] ?? 0} comments',
-                                                        style: const TextStyle(
-                                                            fontSize: 13)),
-                                                  ]),
-                                            ]),
-                                      ])),
-                            ))),
-                ]);
+                return ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _notifications.rows.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final row = _notifications.rows[index];
+                      final unread = row['read_at'] == null;
+                      return Card(
+                          margin: EdgeInsets.zero,
+                          elevation: 0,
+                          color:
+                              unread ? const Color(0xFFF0F7EC) : Colors.white,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              side: const BorderSide(color: Color(0xFFD7E2D3))),
+                          child: ListTile(
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 10),
+                              leading: Icon(
+                                  row['kind'].toString().startsWith('like')
+                                      ? Icons.favorite_outline
+                                      : Icons.chat_bubble_outline,
+                                  color: CcColors.green),
+                              title: Text(communityNotificationText(row),
+                                  style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: unread
+                                          ? FontWeight.w600
+                                          : FontWeight.w400)),
+                              subtitle: Padding(
+                                  padding: const EdgeInsets.only(top: 6),
+                                  child:
+                                      _CommunityTimestamp(row['created_at'])),
+                              trailing: unread
+                                  ? const Icon(Icons.circle,
+                                      size: 8, color: CcColors.green)
+                                  : null,
+                              onTap: () => _communityAction(context, () async {
+                                    await _notifications.markRead(row['id']);
+                                    final post = await widget.repo
+                                        .notificationPost(row['post_id']);
+                                    if (!context.mounted) return;
+                                    if (post == null) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(const SnackBar(
+                                              content: Text(
+                                                  'This post is no longer available.')));
+                                    } else {
+                                      go(
+                                          context,
+                                          CommunityCommentsScreen(
+                                              repo: widget.repo, post: post));
+                                    }
+                                  })));
+                    });
               })));
 }

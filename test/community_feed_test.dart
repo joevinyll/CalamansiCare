@@ -15,6 +15,41 @@ void disposeCommunityScreen(WidgetTester tester, AppState state) {
 }
 
 void main() {
+  testWidgets('Bell badge reflects unread events and empty page lists no posts',
+      (tester) async {
+    final repo = FakeCommunityRepository();
+    addTearDown(repo.close);
+    repo.notificationRows = [
+      {
+        'id': 'n-1',
+        'actor_name': 'Jose Reyes',
+        'kind': 'like_post',
+        'post_id': 'post-1',
+        'read_at': null,
+        'created_at': '2026-10-23T01:00:00Z',
+      }
+    ];
+    final state = AppState(persistSettings: false)..farmerName = 'Maria Santos';
+    disposeCommunityScreen(tester, state);
+    await tester.pumpWidget(AppScope(
+        state: state,
+        child: MaterialApp(home: CommunityFeedScreen(repository: repo))));
+    await tester.pumpAndSettle();
+    expect(tester.widget<Badge>(find.byType(Badge)).isLabelVisible, isTrue);
+    expect((tester.widget<Badge>(find.byType(Badge)).label! as Text).data, '1');
+    await tester.tap(find.byTooltip('Notifications'));
+    await tester.pumpAndSettle();
+    expect(find.text('Notifications'), findsOneWidget);
+    expect(find.text('Jose Reyes liked your post'), findsOneWidget);
+    repo.notificationChanges.add([]);
+    await tester.pumpAndSettle();
+    expect(find.text('No notifications yet.'), findsOneWidget);
+    expect(find.text('Our calamansi harvest this morning!'), findsNothing);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(tester.widget<Badge>(find.byType(Badge)).isLabelVisible, isFalse);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets(
       'Visibility menu fits narrow screens with enlarged text and clear selection',
       (tester) async {
@@ -402,13 +437,23 @@ void main() {
     expect(repo.publishedPhotos.length, 4);
     expect(tester.takeException(), isNull);
   });
-  testWidgets('Activity cards show posted time, live counts and open comments',
+  testWidgets('Notifications show actual activity and open the related post',
       (tester) async {
     tester.view.physicalSize = const Size(320, 740);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final repo = FakeCommunityRepository();
+    repo.notificationRows = [
+      {
+        'id': 'notification-1',
+        'actor_name': 'Jose Reyes',
+        'kind': 'comment',
+        'post_id': 'post-1',
+        'created_at': '2026-10-23T01:00:00Z',
+        'read_at': null,
+      }
+    ];
     addTearDown(repo.close);
     final state = AppState(persistSettings: false)..farmerName = 'Maria Santos';
     disposeCommunityScreen(tester, state);
@@ -422,20 +467,15 @@ void main() {
             home: CommunityActivityScreen(repo: repo))));
     await tester.pumpAndSettle();
     expect(find.byType(Card), findsOneWidget);
-    expect(find.textContaining('Posted '), findsOneWidget);
+    expect(find.text('Notifications'), findsOneWidget);
     expect(find.textContaining('2026'), findsOneWidget);
-    expect(find.text('24 likes'), findsOneWidget);
-    expect(find.text('2 comments'), findsOneWidget);
-    repo.rows = [
-      {...repo.rows.first, 'like_count': 25}
-    ];
-    repo.changes.add(repo.rows);
-    await tester.pumpAndSettle();
-    expect(find.text('25 likes'), findsOneWidget);
+    expect(find.text('Jose Reyes commented on your post'), findsOneWidget);
+    expect(find.text('Our calamansi harvest this morning!'), findsNothing);
     expect(tester.takeException(), isNull);
-    await tester.tap(find.text('Our calamansi harvest this morning!'));
+    await tester.tap(find.text('Jose Reyes commented on your post'));
     await tester.pumpAndSettle();
     expect(find.byType(CommunityCommentsScreen), findsOneWidget);
+    expect(repo.readId, 'notification-1');
     expect(tester.takeException(), isNull);
   });
   testWidgets('Pull down reloads Community including an empty feed',

@@ -200,6 +200,16 @@ void main() {
     await show(
         EditCommunityPostScreen(repo: community, post: community.rows.first));
     await capture('15-edit-post');
+    community.notificationRows = [
+      {
+        'id': 'sample-notification',
+        'actor_name': 'Jose Reyes',
+        'kind': 'comment',
+        'post_id': 'post-1',
+        'read_at': null,
+        'created_at': '2026-10-23T01:00:00Z',
+      }
+    ];
     await show(CommunityActivityScreen(repo: community));
     await capture('16-community-activity');
     await tester.runAsync(() async {
