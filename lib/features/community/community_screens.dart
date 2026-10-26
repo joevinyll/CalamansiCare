@@ -369,11 +369,6 @@ class _BarangayReportsScreenState extends State<BarangayReportsScreen> {
                                 'Recorded: ${report.reportedAt.isEmpty ? 'Not recorded' : _formatHistoryDateTime(report.reportedAt)}',
                                 style: const TextStyle(
                                     fontSize: 11, color: CcColors.muted)),
-                            const Text('AI prediction · Not confirmed',
-                                style: TextStyle(
-                                    fontSize: 11,
-                                    color: _green,
-                                    fontWeight: FontWeight.w600)),
                           ]),
                       const SizedBox(height: 12),
                       detail(
