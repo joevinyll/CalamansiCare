@@ -603,9 +603,11 @@ class _HistoryConditionRow extends StatelessWidget {
 }
 
 class _BatchHistoryPage extends StatelessWidget {
-  const _BatchHistoryPage({required this.title, required this.children});
+  const _BatchHistoryPage(
+      {required this.title, required this.children, this.controller});
   final String title;
   final List<Widget> children;
+  final ScrollController? controller;
   @override
   Widget build(BuildContext context) => Scaffold(
       backgroundColor: CcColors.bg,
@@ -624,6 +626,7 @@ class _BatchHistoryPage extends StatelessWidget {
               child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 480),
                   child: ListView(
+                      controller: controller,
                       padding: const EdgeInsets.all(16),
                       children: children)))));
 }
@@ -638,7 +641,28 @@ class BatchReportSummaryScreen extends StatefulWidget {
 
 class _BatchReportSummaryScreenState extends State<BatchReportSummaryScreen> {
   late ScanHistoryBatch _batch = widget.batch;
+  final _scroll = ScrollController();
+  bool _showOfflineActions = false;
   bool _sending = false;
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  Future<void> _revealOfflineActions() async {
+    if (!mounted || !_showOfflineActions || !_scroll.hasClients) return;
+    if (!MediaQuery.disableAnimationsOf(context)) {
+      await _scroll.animateTo(_scroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeOutCubic);
+    }
+    if (!mounted || !_showOfflineActions || !_scroll.hasClients) return;
+    // Lazy children can change the estimated bottom during the animation.
+    _scroll.jumpTo(_scroll.position.maxScrollExtent);
+  }
+
   Future<void> _send() async {
     if (_sending) return;
     if (_sending) return;
@@ -691,198 +715,227 @@ class _BatchReportSummaryScreenState extends State<BatchReportSummaryScreen> {
     final location =
         report['report_farmer_location'] as String? ?? state.farmerLocation;
     final recipient = report['report_email'] as String? ?? state.officeEmail;
-    return _BatchHistoryPage(title: 'Report summary', children: [
-      _BatchPanel(
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(_batch.title,
-            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
-        Text(_formatHistoryDateTime(_batch.date.toIso8601String())),
-        const SizedBox(height: 12),
-        _BatchStrip(batch: _batch),
-        const SizedBox(height: 8),
-        Text('${_batch.rows.length} saved images'),
-        const Divider(height: 24),
-        _summaryField(Icons.person_outline, 'Farmer',
-            farmer.isEmpty ? 'Not set' : farmer),
-        _summaryField(Icons.location_on_outlined, 'Location',
-            location.isEmpty ? 'Not set' : location),
-        _summaryField(Icons.account_balance_outlined, 'Recipient',
-            recipient.isEmpty ? 'Not set' : recipient),
-      ])),
-      const SizedBox(height: 12),
-      _BatchPanel(
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Batch results',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-        const SizedBox(height: 4),
-        Text(
-            '${_batch.rows.length} images • ${_batch.conditions.length} conditions',
-            style: const TextStyle(fontSize: 13, color: CcColors.muted)),
-        const SizedBox(height: 12),
-        Table(
-            border: const TableBorder(
-                horizontalInside: BorderSide(color: CcColors.line)),
-            columnWidths: const {
-              0: FlexColumnWidth(2),
-              1: FlexColumnWidth(),
-              2: FlexColumnWidth()
-            },
-            defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-            children: [
-              const TableRow(children: [
-                Padding(
-                    padding: EdgeInsets.only(bottom: 12),
-                    child: Text('Condition',
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: CcColors.muted,
-                            fontWeight: FontWeight.w600))),
-                Text('Images',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: CcColors.muted,
-                        fontWeight: FontWeight.w600)),
-                Text('Share',
-                    textAlign: TextAlign.right,
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: CcColors.muted,
-                        fontWeight: FontWeight.w600))
-              ]),
-              for (final e in _batch.conditions.entries)
-                TableRow(children: [
-                  Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Padding(
-                                padding:
-                                    const EdgeInsets.only(top: 4, right: 8),
-                                child: Icon(Icons.circle,
-                                    size: 8, color: _reportRiskColor(e.key))),
-                            Expanded(
-                                child: Text(context.t(e.key),
-                                    style: TextStyle(
+    final showOfflineActions = !state.isOnline && _batch.waiting && !_sending;
+    if (showOfflineActions && !_showOfflineActions) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => unawaited(_revealOfflineActions()));
+    }
+    _showOfflineActions = showOfflineActions;
+    return _BatchHistoryPage(
+        title: 'Report summary',
+        controller: _scroll,
+        children: [
+          _BatchPanel(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text(_batch.title,
+                    style: const TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.w700)),
+                Text(_formatHistoryDateTime(_batch.date.toIso8601String())),
+                const SizedBox(height: 12),
+                _BatchStrip(batch: _batch),
+                const SizedBox(height: 8),
+                Text('${_batch.rows.length} saved images'),
+                const Divider(height: 24),
+                _summaryField(Icons.person_outline, 'Farmer',
+                    farmer.isEmpty ? 'Not set' : farmer),
+                _summaryField(Icons.location_on_outlined, 'Location',
+                    location.isEmpty ? 'Not set' : location),
+                _summaryField(Icons.account_balance_outlined, 'Recipient',
+                    recipient.isEmpty ? 'Not set' : recipient),
+              ])),
+          const SizedBox(height: 12),
+          _BatchPanel(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                const Text('Batch results',
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 4),
+                Text(
+                    '${_batch.rows.length} images • ${_batch.conditions.length} conditions',
+                    style:
+                        const TextStyle(fontSize: 13, color: CcColors.muted)),
+                const SizedBox(height: 12),
+                Table(
+                    border: const TableBorder(
+                        horizontalInside: BorderSide(color: CcColors.line)),
+                    columnWidths: const {
+                      0: FlexColumnWidth(2),
+                      1: FlexColumnWidth(),
+                      2: FlexColumnWidth()
+                    },
+                    defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                    children: [
+                      const TableRow(children: [
+                        Padding(
+                            padding: EdgeInsets.only(bottom: 12),
+                            child: Text('Condition',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: CcColors.muted,
+                                    fontWeight: FontWeight.w600))),
+                        Text('Images',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: CcColors.muted,
+                                fontWeight: FontWeight.w600)),
+                        Text('Share',
+                            textAlign: TextAlign.right,
+                            style: TextStyle(
+                                fontSize: 12,
+                                color: CcColors.muted,
+                                fontWeight: FontWeight.w600))
+                      ]),
+                      for (final e in _batch.conditions.entries)
+                        TableRow(children: [
+                          Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Padding(
+                                        padding: const EdgeInsets.only(
+                                            top: 4, right: 8),
+                                        child: Icon(Icons.circle,
+                                            size: 8,
+                                            color: _reportRiskColor(e.key))),
+                                    Expanded(
+                                        child: Text(context.t(e.key),
+                                            style: TextStyle(
+                                                fontSize: 14,
+                                                color: _reportRiskColor(e.key),
+                                                fontWeight: FontWeight.w600))),
+                                  ])),
+                          Text('${e.value.length}',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.w600)),
+                          Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                    '${(e.value.length / _batch.rows.length * 100).toStringAsFixed(0)}%',
+                                    style: const TextStyle(
                                         fontSize: 14,
-                                        color: _reportRiskColor(e.key),
-                                        fontWeight: FontWeight.w600))),
-                          ])),
-                  Text('${e.value.length}',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                          fontSize: 14, fontWeight: FontWeight.w600)),
-                  Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                    Text(
-                        '${(e.value.length / _batch.rows.length * 100).toStringAsFixed(0)}%',
-                        style: const TextStyle(
-                            fontSize: 14, fontWeight: FontWeight.w600),
-                        textAlign: TextAlign.right),
-                    const SizedBox(height: 6),
-                    LinearProgressIndicator(
-                        value: e.value.length / _batch.rows.length,
-                        minHeight: 4,
-                        borderRadius: BorderRadius.circular(2),
-                        color: _reportRiskColor(e.key),
-                        backgroundColor: CcColors.line),
-                  ])
-                ]),
-            ]),
-        ExpansionTile(
-            tilePadding: EdgeInsets.zero,
-            title: const Text('Confidence and matching photos',
-                style: TextStyle(fontSize: 14)),
-            children: [
-              for (final e in _batch.conditions.entries)
-                _HistoryConditionRow(
-                    label: e.key,
-                    indices: [
-                      for (var i = 0; i < _batch.rows.length; i++)
-                        if (_batch.rows[i]['disease'] == e.key) i
-                    ],
-                    results: _batch.results)
-            ]),
-      ])),
-      const SizedBox(height: 12),
-      if (_batch.conditions.keys.any((label) => !_isHealthyCondition(label)))
-        _BatchPanel(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Recommendations included',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
-          for (final e in _batch.conditions.entries)
-            if (!_isHealthyCondition(e.key))
-              ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.circle,
-                      size: 14, color: _batchConditionColor(e.key)),
-                  title: Text(context.t(e.key),
-                      style: const TextStyle(fontSize: 14)),
-                  subtitle: const Text('Natural & conventional',
-                      style: TextStyle(fontSize: 12)),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _openBatchCare(context, _batch))
-        ])),
-      const SizedBox(height: 12),
-      _BatchPanel(
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Report status',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-        const SizedBox(height: 12),
-        _BatchStatus(batch: _batch, detail: true),
-        if (!_batch.sent) ...[
+                                        fontWeight: FontWeight.w600),
+                                    textAlign: TextAlign.right),
+                                const SizedBox(height: 6),
+                                LinearProgressIndicator(
+                                    value: e.value.length / _batch.rows.length,
+                                    minHeight: 4,
+                                    borderRadius: BorderRadius.circular(2),
+                                    color: _reportRiskColor(e.key),
+                                    backgroundColor: CcColors.line),
+                              ])
+                        ]),
+                    ]),
+                ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    title: const Text('Confidence and matching photos',
+                        style: TextStyle(fontSize: 14)),
+                    children: [
+                      for (final e in _batch.conditions.entries)
+                        _HistoryConditionRow(
+                            label: e.key,
+                            indices: [
+                              for (var i = 0; i < _batch.rows.length; i++)
+                                if (_batch.rows[i]['disease'] == e.key) i
+                            ],
+                            results: _batch.results)
+                    ]),
+              ])),
           const SizedBox(height: 12),
-          CheckboxListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Allow sending diagnosis details',
-                  style: TextStyle(fontSize: 13)),
-              value: state.consentEnabled,
-              onChanged: _sending
-                  ? null
-                  : (value) {
-                      state.setConsent(value ?? false);
-                      setState(() {});
-                    }),
-          SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                  onPressed: _sending ? null : _send,
-                  child: _sending
-                      ? const Row(mainAxisSize: MainAxisSize.min, children: [
-                          SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  semanticsLabel: 'Sending report')),
-                          SizedBox(width: 12),
-                          Flexible(child: Text('Sending...')),
-                        ])
-                      : Text(_batch.rows.length == 1
-                          ? 'Send Report'
-                          : _batch.waiting
-                              ? 'Try sending now'
-                              : 'Send batch report')))
-        ],
-        if (!state.isOnline && _batch.waiting && !_sending) ...[
+          if (_batch.conditions.keys
+              .any((label) => !_isHealthyCondition(label)))
+            _BatchPanel(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  const Text('Recommendations included',
+                      style:
+                          TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                  for (final e in _batch.conditions.entries)
+                    if (!_isHealthyCondition(e.key))
+                      ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.circle,
+                              size: 14, color: _batchConditionColor(e.key)),
+                          title: Text(context.t(e.key),
+                              style: const TextStyle(fontSize: 14)),
+                          subtitle: const Text('Natural & conventional',
+                              style: TextStyle(fontSize: 12)),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => _openBatchCare(context, _batch))
+                ])),
           const SizedBox(height: 12),
-          OutlinedButton.icon(
-            icon: const Icon(Icons.dashboard_outlined),
-            label: const Text('Go to Dashboard'),
-            onPressed: () {
-              state.setTab(0);
-              Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute<void>(builder: (_) => const MainShell()),
-                  (_) => false);
-            },
-          ),
-        ],
-      ])),
-    ]);
+          _BatchPanel(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                const Text('Report status',
+                    style:
+                        TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 12),
+                _BatchStatus(batch: _batch, detail: true),
+                if (!_batch.sent) ...[
+                  const SizedBox(height: 12),
+                  CheckboxListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Allow sending diagnosis details',
+                          style: TextStyle(fontSize: 13)),
+                      value: state.consentEnabled,
+                      onChanged: _sending
+                          ? null
+                          : (value) {
+                              state.setConsent(value ?? false);
+                              setState(() {});
+                            }),
+                  SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                          onPressed: _sending ? null : _send,
+                          child: _sending
+                              ? const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                      SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              semanticsLabel:
+                                                  'Sending report')),
+                                      SizedBox(width: 12),
+                                      Flexible(child: Text('Sending...')),
+                                    ])
+                              : Text(_batch.rows.length == 1
+                                  ? 'Send Report'
+                                  : _batch.waiting
+                                      ? 'Try sending now'
+                                      : 'Send batch report')))
+                ],
+                if (showOfflineActions) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.dashboard_outlined),
+                        label: const Text('Go to Dashboard'),
+                        onPressed: () {
+                          state.setTab(0);
+                          Navigator.of(context).pushAndRemoveUntil(
+                              MaterialPageRoute<void>(
+                                  builder: (_) => const MainShell()),
+                              (_) => false);
+                        },
+                      )),
+                ],
+              ])),
+        ]);
   }
 
   Color _reportRiskColor(String label) => switch (_batchRisk(label)) {

@@ -277,6 +277,19 @@ class _AuthLandingScreenState extends State<AuthLandingScreen> {
                       ),
                       const SizedBox(height: 12),
                       PrimaryButton(
+                        label: 'Go to Dashboard',
+                        icon: Icons.dashboard_rounded,
+                        onPressed: () {
+                          FocusScope.of(context).unfocus();
+                          state.setTab(0);
+                          Navigator.of(context).pushAndRemoveUntil(
+                              MaterialPageRoute<void>(
+                                  builder: (_) => const MainShell()),
+                              (_) => false);
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      PrimaryButton(
                         label: 'Sign out',
                         icon: Icons.logout_rounded,
                         color: CcColors.red,
@@ -301,20 +314,16 @@ class _AuthLandingScreenState extends State<AuthLandingScreen> {
                   mode: _mode,
                   onModeChanged: (mode) => setState(() => _mode = mode),
                 ),
-          if (!isKeyboardOpen) ...[
+          if (!state.isSignedIn && !isKeyboardOpen) ...[
             const SizedBox(height: 14),
-            if (!state.isSignedIn) ...[
-              const NoticeCard(
-                text:
-                    'You can still scan offline. Sign in is only needed before sending reports online.',
-              ),
-              const SizedBox(height: 14),
-            ],
+            const NoticeCard(
+              text:
+                  'You can still scan offline. Sign in is only needed before sending reports online.',
+            ),
+            const SizedBox(height: 14),
             OutlineAction(
-              label: state.isSignedIn ? 'Go to Dashboard' : 'Continue offline',
-              icon: state.isSignedIn
-                  ? Icons.dashboard_rounded
-                  : Icons.eco_rounded,
+              label: 'Continue offline',
+              icon: Icons.eco_rounded,
               onTap: () => replaceWith(context, const MainShell()),
             ),
           ],

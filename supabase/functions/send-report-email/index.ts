@@ -17,6 +17,7 @@ type ReportRow = {
   device_signature: string | null;
   image_url: string | null;
   reported_at: string | null;
+  scanned_at?: string | null;
 };
 
 export async function handleRequest(req: Request): Promise<Response> {
@@ -51,6 +52,9 @@ export async function handleRequest(req: Request): Promise<Response> {
       headers: { apikey: serviceRoleKey, Authorization: authorization },
     });
     if (!userResponse.ok) return json({ error: "Authentication required." }, 401);
+    const authUser = await userResponse.json();
+    if (typeof authUser?.id !== "string") return json({ error: "Authentication required." }, 401);
+    const farmerEmail = typeof authUser.email === "string" ? authUser.email : null;
     const rawBody = await req.text();
     if (rawBody.length > 2048) return json({ error: "Request too large." }, 413);
     const body = JSON.parse(rawBody);
@@ -98,7 +102,7 @@ export async function handleRequest(req: Request): Promise<Response> {
     }
 
     const subject = buildBatchSubject(reports);
-    const html = buildBatchReportHtml(reports);
+    const html = buildBatchReportHtml(reports, farmerEmail);
     const emailResult = brevoApiKey
       ? await sendWithBrevo({
           apiKey: brevoApiKey,
@@ -275,38 +279,8 @@ async function sendWithResend({
   return { ok: true, provider: "resend", result: safeJson(text) };
 }
 
-export function buildReportHtml(report: ReportRow, confidencePercent: number) {
-  const details = reportClassification(report.disease);
-  const care = careContent[report.disease];
-  const recommendations = care ? `
-      <h3>Natural care</h3><p>${escapeHtml(care.cultural)}</p>
-      <h3>Conventional treatment</h3><p>${escapeHtml(care.chemical)}</p>
-      <h3>Prevention</h3><p>${escapeHtml(care.prevention)}</p>
-      <p>Use only products approved for the crop and target problem. Follow label directions, protective clothing requirements, and waiting times. Confirm findings with an agriculture technician before treatment.</p>` : "";
-  const image = report.image_url
-    ? `<p><strong>Image:</strong><br><a href="${escapeHtml(report.image_url)}">View report image</a></p><img src="${escapeHtml(report.image_url)}" alt="Calamansi report image" style="max-width:520px;width:100%;border-radius:12px;border:1px solid #dfe8dd;" />`
-    : "<p><strong>Image:</strong> No uploaded image.</p>";
-
-  return `
-    <div style="font-family:Arial,sans-serif;line-height:1.5;color:#163224;">
-      <h2>CalamansiCare Disease Report</h2>
-      <p>A new calamansi disease report was submitted.</p>
-      <p style="padding:12px;background:#f0f4ea;border-radius:8px;color:${details.color};"><strong>${escapeHtml(details.priority)} priority | ${escapeHtml(details.risk)}</strong></p>
-      <table cellpadding="8" cellspacing="0" style="border-collapse:collapse;">
-        <tr><td><strong>Report ID</strong></td><td>${escapeHtml(report.local_report_id)}</td></tr>
-        <tr><td><strong>Farmer</strong></td><td>${escapeHtml(report.farmer_name ?? "-")}</td></tr>
-        <tr><td><strong>Farm location</strong></td><td>${escapeHtml(report.farmer_location ?? "Not set")}</td></tr>
-        <tr><td><strong>Recipient</strong></td><td>${escapeHtml(report.office_email ?? "Not set")}</td></tr>
-        <tr><td><strong>Disease</strong></td><td>${escapeHtml(report.disease)}</td></tr>
-        <tr><td><strong>Confidence</strong></td><td>${confidencePercent}%</td></tr>
-        <tr><td><strong>Disease type</strong></td><td>${escapeHtml(care?.kind ?? (details.risk === "No Risk" ? "Healthy plant" : "Needs field confirmation"))}</td></tr>
-        <tr><td><strong>Reported at</strong></td><td>${escapeHtml(report.reported_at ?? "-")}</td></tr>
-      </table>
-      ${image}
-      ${recommendations}
-      <p style="font-size:12px;color:#52645a;">AI image prediction, not a confirmed laboratory diagnosis. Risk and priority are app triage labels, not an official severity assessment. This email covers one saved image; other batch images are delivered separately.</p>
-    </div>
-  `;
+export function buildReportHtml(report: ReportRow, confidencePercent: number, farmerEmail: string | null = null) {
+  return buildBatchReportHtml([{ ...report, confidence: confidencePercent / 100 }], farmerEmail);
 }
 
 export function reportClassification(disease: string) {
@@ -316,7 +290,7 @@ export function reportClassification(disease: string) {
   if (disease === "HLB (Greening)" || disease === "Citrus Canker") {
     return { risk: "High Risk", priority: "High", color: "#b91c1c" };
   }
-  if (careContent[disease]) {
+  if (Object.hasOwn(careContent, disease)) {
     return { risk: "Medium Risk", priority: "Medium", color: "#946512" };
   }
   return { risk: "Unassessed", priority: "Review required", color: "#52645a" };
@@ -334,7 +308,7 @@ export function validReportIds(ids: unknown): ids is string[] {
 }
 
 function highestPriority(reports: ReportRow[]) {
-  const rank: Record<string, number> = { Routine: 0, Medium: 1, High: 2, "Review required": 3 };
+  const rank: Record<string, number> = { Routine: 0, Medium: 1, "Review required": 2, High: 3 };
   return reports.map(r => reportClassification(r.disease))
     .reduce((a, b) => rank[a.priority] >= rank[b.priority] ? a : b);
 }
@@ -343,38 +317,95 @@ export function buildBatchSubject(reports: ReportRow[]) {
   return `[${highestPriority(reports).priority} priority] CalamansiCare Batch Report - ${reports.length} images`;
 }
 
-export function buildBatchReportHtml(reports: ReportRow[]) {
+function diseaseType(disease: string): string {
+  const care = Object.hasOwn(careContent, disease) ? careContent[disease] : undefined;
+  return care?.kind ?? (reportClassification(disease).risk === "No Risk" ? "Healthy plant" : "Needs field confirmation");
+}
+
+function formatReportTime(value: string | null | undefined): string {
+  if (!value || !Number.isFinite(Date.parse(value))) return "Not recorded";
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Manila", year: "numeric", month: "short", day: "numeric",
+    hour: "numeric", minute: "2-digit", hour12: true,
+  }).formatToParts(new Date(value));
+  const get = (type: string) => parts.find(part => part.type === type)?.value ?? "";
+  return `${get("month")} ${get("day")}, ${get("year")} at ${get("hour")}:${get("minute")}${get("dayPeriod").toLowerCase()}`;
+}
+
+function reportTimeRange(reports: ReportRow[], field: "scanned_at" | "reported_at"): string {
+  const times = reports.map(report => report[field]).filter((value): value is string =>
+    typeof value === "string" && Number.isFinite(Date.parse(value)))
+    .sort((a, b) => Date.parse(a) - Date.parse(b));
+  if (!times.length) return "Not recorded";
+  const start = formatReportTime(times[0]);
+  const end = formatReportTime(times[times.length - 1]);
+  const partial = times.length < reports.length ? ` (${times.length} of ${reports.length} images recorded)` : "";
+  return `${start === end ? start : `${start} - ${end}`}${partial}`;
+}
+
+function careList(text: string, color: string): string {
+  const keywords = /\b(disease-free seedlings|dead twigs|dead wood|copper-based spray|no proven spray that cures HLB|does not cure the tree|cannot remove existing spots|infected|disinfect|psyllids|technician|approved|confirmation|confirmed|prevention)\b/gi;
+  return `<ul style="margin:6px 0 16px;padding-left:22px">${text.split(/(?<=[.!?])\s+/).map(sentence =>
+    `<li style="margin:5px 0">${escapeHtml(sentence).replace(keywords, `<strong style="color:${color}">$1</strong>`)}</li>`).join("")}</ul>`;
+}
+
+function highRiskNotice(reports: ReportRow[]): string {
+  const high = reports.filter(report => reportClassification(report.disease).risk === "High Risk");
+  if (!high.length) return "";
+  const diseases = new Set(high.map(report => report.disease));
+  const explanations = [
+    diseases.has("HLB (Greening)") ? "<li><strong>Suspected HLB (Greening) - bacterial disease:</strong> Citrus psyllids can spread infection between trees. Established HLB infections have no known cure, so prompt assessment and measures to limit spread are important.</li>" : "",
+    diseases.has("Citrus Canker") ? "<li><strong>Suspected Citrus Canker - bacterial disease:</strong> Wind-driven rain, contaminated tools and infected planting material can spread the bacteria. Prompt assessment helps limit further spread.</li>" : "",
+  ].join("");
+  return `<div role="note" style="margin:18px 0;padding:16px;background:#fff1f0;border:1px solid #e3aaa4;border-left:5px solid #b91c1c;border-radius:6px">
+    <h3 style="margin:0 0 8px;color:#b91c1c">HIGH-RISK NOTICE - Prompt agricultural assessment needed</h3>
+    <p><strong>${high.length} of ${reports.length} images</strong> show suspected high-risk bacterial disease. These AI findings are <strong>not confirmed infections</strong>.</p>
+    <ul style="padding-left:22px">${explanations}</ul>
+    <h4 style="color:#b91c1c;margin-bottom:6px">For barangay agriculture staff</h4>
+    <ul style="padding-left:22px">
+      <li><strong>Contact the farmer promptly</strong> and refer the findings to the municipal/city agriculture office for assessment.</li>
+      <li><strong>Limit movement:</strong> Advise against moving suspect seedlings, budwood or cuttings while awaiting assessment.</li>
+      <li><strong>Reduce spread:</strong> Avoid working on wet trees and disinfect tools between trees. Ask a technician about monitoring citrus psyllids.</li>
+      <li><strong>Confirm before intervention:</strong> Do not order tree removal or prescribe pesticide treatment solely from these AI results.</li>
+    </ul></div>`;
+}
+
+export function buildBatchReportHtml(reports: ReportRow[], farmerEmail: string | null = null) {
   const first = reports[0];
   const priority = highestPriority(reports);
   const groups = new Map<string, ReportRow[]>();
   for (const report of reports) groups.set(report.disease, [...(groups.get(report.disease) ?? []), report]);
   const rows = [...groups].map(([disease, images]) => {
     const risk = reportClassification(disease);
-    return `<tr><td style="padding:12px;color:${risk.color}">${escapeHtml(disease)}</td><td>${images.length}</td><td>${Math.round(images.length / reports.length * 100)}%</td><td>${risk.risk}</td><td>${escapeHtml(careContent[disease]?.kind ?? (risk.risk === "No Risk" ? "Healthy plant" : "Unconfirmed"))}</td></tr>`;
+    return `<tr style="border-bottom:1px solid #dfe8dd"><td style="color:${risk.color};font-weight:bold">${escapeHtml(disease)}</td><td>${images.length}</td><td>${Math.round(images.length / reports.length * 100)}%</td><td style="color:${risk.color}">${risk.risk}</td><td>${escapeHtml(diseaseType(disease))}</td></tr>`;
   }).join("");
-  const photos = reports.map((report, i) => `<div style="margin:20px 0;border-top:1px solid #dfe8dd;padding-top:12px">
-    <h3>Image ${i + 1} - ${escapeHtml(report.disease)}</h3>
-    <p>Confidence: ${Math.round(report.confidence * 100)}% | ${reportClassification(report.disease).risk}</p>
-    <p>Report ID: ${escapeHtml(report.local_report_id)}<br>Reported at: ${escapeHtml(report.reported_at ?? "-")}</p>
-    ${report.image_url ? `<a href="${escapeHtml(report.image_url)}">View image ${i + 1}</a><br><img src="${escapeHtml(report.image_url)}" alt="Report image ${i + 1}" style="width:100%;max-width:480px;border-radius:8px">` : "<p>Image unavailable.</p>"}
+  const photos = reports.map((report, i) => `<div style="margin:20px 0;border:1px solid #dfe8dd;border-radius:6px;padding:14px">
+    <h3 style="margin:0 0 8px;color:#24583c;font-size:16px">Image ${i + 1}: ${escapeHtml(report.disease)} (${escapeHtml(diseaseType(report.disease))})</h3>
+    <p style="font-size:13px;color:#52645a">Confidence: ${Math.round(report.confidence * 100)}% | <strong style="color:${reportClassification(report.disease).color}">${reportClassification(report.disease).risk}</strong><br>Scanned: ${formatReportTime(report.scanned_at)} (Philippine time)</p>
+    ${report.image_url ? `<a href="${escapeHtml(report.image_url)}" style="color:#24583c">Open image ${i + 1}</a><br><img src="${escapeHtml(report.image_url)}" alt="Image ${i + 1}: ${escapeHtml(report.disease)}" style="display:block;width:100%;max-width:600px;height:auto;margin-top:10px;border-radius:6px">` : "<p>Image unavailable.</p>"}
     </div>`).join("");
-  const care = [...groups.keys()].filter(d => careContent[d]).map(d => {
+  const care = [...groups.keys()].filter(d => Object.hasOwn(careContent, d)).sort((a, b) =>
+    Number(reportClassification(b).risk === "High Risk") - Number(reportClassification(a).risk === "High Risk")).map(d => {
     const content = careContent[d];
-    return `<h3>${escapeHtml(d)}</h3><p><strong>Natural care:</strong> ${escapeHtml(content.cultural)}</p>
-      <p><strong>Conventional treatment:</strong> ${escapeHtml(content.chemical)}</p>
-      <p><strong>Prevention:</strong> ${escapeHtml(content.prevention)}</p>`;
+    return `<h3 style="margin-top:24px;color:${reportClassification(d).color}">${escapeHtml(d)} - ${escapeHtml(content.kind)}</h3>
+      <h4 style="color:#24583c;margin-bottom:6px">Natural care</h4>${careList(content.cultural, "#24583c")}
+      <h4 style="color:#1d5b96;margin-bottom:6px">Conventional treatment</h4>${careList(content.chemical, "#1d5b96")}
+      <h4 style="color:#835b0b;margin-bottom:6px">Prevention</h4>${careList(content.prevention, "#835b0b")}`;
   }).join("");
-  return `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#17251d;max-width:680px;margin:auto">
-    <h2>CalamansiCare Batch Report</h2>
+  return `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#17251d;max-width:680px;margin:auto">
+    <h2 style="color:#24583c">CalamansiCare ${reports.length === 1 ? "Disease" : "Batch"} Report</h2>
     <p style="padding:12px;background:#f0f4ea;color:${priority.color}"><strong>${priority.priority} priority | ${priority.risk}</strong></p>
     <p><strong>Farmer:</strong> ${escapeHtml(first.farmer_name ?? "Not set")}<br>
+    <strong>Farmer email:</strong> ${escapeHtml(farmerEmail ?? "Not available")}<br>
     <strong>Location:</strong> ${escapeHtml(first.farmer_location ?? "Not set")}<br>
     <strong>Recipient:</strong> ${escapeHtml(first.office_email ?? "Not set")}</p>
-    <h3>Batch results - ${reports.length} images</h3>
-    <table style="width:100%;border-collapse:collapse" cellpadding="8"><tr><th align="left">Condition</th><th>Images</th><th>Share</th><th>Risk</th><th>Type</th></tr>${rows}</table>
-    <h3>Scanned images</h3>${photos}
-    ${care ? `<h2>Recommendations</h2>${care}<p>Use only approved products. Follow labels, protective clothing requirements, and waiting times. Confirm findings with an agriculture technician before treatment.</p>` : ""}
-    <p style="font-size:12px">AI predictions are not confirmed laboratory diagnoses. Risk and priority are app triage labels, not an official severity assessment.</p></div>`;
+    <p style="font-size:12px;color:#52645a"><strong>Scanned:</strong> ${reportTimeRange(reports, "scanned_at")}<br><strong>Reported:</strong> ${reportTimeRange(reports, "reported_at")}<br>All times shown in Philippine time.</p>
+    <h3 style="color:#24583c">Batch results - ${reports.length} ${reports.length === 1 ? "image" : "images"}</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:12px" cellpadding="6"><tr style="background:#eef4ef"><th align="left">Condition</th><th>Images</th><th>Share</th><th>Risk</th><th>Type</th></tr>${rows}</table>
+    ${highRiskNotice(reports)}
+    ${care ? `<h2 style="color:#24583c">Recommendations</h2>${care}<p style="padding:12px;background:#fff7df"><strong>Safety reminder:</strong> Use only approved products. Follow labels, protective clothing requirements, and waiting times. Confirm findings with an agriculture technician before treatment.</p>` : ""}
+    <p style="font-size:12px;color:#52645a">AI predictions are not confirmed laboratory diagnoses. Risk and priority are app triage labels, not an official severity assessment.</p>
+    <h2 style="color:#24583c;border-top:2px solid #dfe8dd;padding-top:20px">Scanned images</h2>${photos}</div>`;
 }
 
 export function cityOnlyReportLocation(location: string | null): string {

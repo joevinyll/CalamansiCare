@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollCacheExtent;
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:camera/camera.dart';
@@ -13,6 +14,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' show AuthChangeEvent;
 import 'data/diagnosis_repository.dart';
 import 'data/treatment_content.dart';
 import 'data/community_repository.dart';
+import 'data/community_feed_controller.dart';
 import 'data/community_notifications.dart';
 import 'data/community_time.dart';
 import 'disease_classifier.dart';
@@ -198,14 +200,14 @@ String diseaseDescriptionFor(String disease) {
 }
 
 class CcColors {
-  static const bg = Color(0xFFF0F4EA);
-  static const bgAlt = Color(0xFFF7FAF3);
+  static const bg = Color(0xFFEEF3E8);
+  static const bgAlt = Color(0xFFF7FAF5);
   static const card = Color(0xFFFFFFFF);
-  static const green = Color(0xFF2F6B3F);
+  static const green = Color(0xFF286344);
   static const dark = Color(0xFF17251D);
   static const hero = Color(0xFF1F4D30);
   static const blackGreen = Color(0xFF0B120E);
-  static const soft = Color(0xFFEAF5DF);
+  static const soft = Color(0xFFE7F0E3);
   static const softStrong = Color(0xFFDDE8D8);
   static const lime = Color(0xFFB7D857);
   static const limeLight = Color(0xFFDDF28A);
@@ -215,8 +217,8 @@ class CcColors {
   static const link = Color(0xFF1565C0);
   static const red = Color(0xFFC6483A);
   static const ink = Color(0xFF17251D);
-  static const muted = Color(0xFF667568);
-  static const line = Color(0xFFDDE8D8);
+  static const muted = Color(0xFF596B5F);
+  static const line = Color(0xFFD7E2D4);
 }
 
 class AppText {
@@ -2037,8 +2039,69 @@ class _CalamansiCareAppState extends State<CalamansiCareApp>
                 secondary: CcColors.orange,
                 surface: CcColors.card,
               ),
+              dividerTheme:
+                  const DividerThemeData(color: CcColors.line, thickness: 1),
+              appBarTheme: const AppBarTheme(
+                backgroundColor: CcColors.bg,
+                foregroundColor: CcColors.ink,
+                surfaceTintColor: Colors.transparent,
+                elevation: 0,
+                scrolledUnderElevation: 0,
+              ),
+              cardTheme: const CardThemeData(
+                color: CcColors.card,
+                surfaceTintColor: Colors.transparent,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(8)),
+                  side: BorderSide(color: CcColors.line),
+                ),
+              ),
+              inputDecorationTheme: InputDecorationTheme(
+                filled: true,
+                fillColor: CcColors.card,
+                labelStyle: const TextStyle(color: CcColors.muted),
+                hintStyle: const TextStyle(color: CcColors.muted),
+                border:
+                    OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: CcColors.line),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: CcColors.green, width: 2),
+                ),
+              ),
+              outlinedButtonTheme: OutlinedButtonThemeData(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: CcColors.green,
+                  minimumSize: const Size(48, 48),
+                  side: const BorderSide(color: CcColors.green),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+              chipTheme: ChipThemeData(
+                backgroundColor: CcColors.card,
+                selectedColor: CcColors.soft,
+                side: const BorderSide(color: CcColors.line),
+                labelStyle: const TextStyle(color: CcColors.ink),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+              expansionTileTheme: const ExpansionTileThemeData(
+                iconColor: CcColors.green,
+                textColor: CcColors.ink,
+                collapsedIconColor: CcColors.muted,
+                collapsedTextColor: CcColors.ink,
+                shape: Border(),
+                collapsedShape: Border(),
+              ),
               filledButtonTheme: FilledButtonThemeData(
                 style: FilledButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  backgroundColor: CcColors.green,
                   minimumSize: const Size.fromHeight(52),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8),
@@ -2048,7 +2111,7 @@ class _CalamansiCareAppState extends State<CalamansiCareApp>
               snackBarTheme: SnackBarThemeData(
                 behavior: SnackBarBehavior.floating,
                 backgroundColor: CcColors.dark,
-                elevation: 10,
+                elevation: 2,
                 insetPadding: const EdgeInsets.fromLTRB(16, 0, 16, 28),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),

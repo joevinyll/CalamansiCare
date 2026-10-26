@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'dart:math';
 import 'dart:typed_data';
-import 'package:flutter/foundation.dart' show compute;
+import 'package:flutter/foundation.dart' show compute, visibleForTesting;
 
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:path/path.dart';
@@ -462,12 +462,15 @@ class DiagnosisRepository {
     );
   }
 
-  Future<bool> signInWithGoogle() {
+  Future<bool> signInWithGoogle() async {
     final client = _requireSupabase();
-    return client.auth.signInWithOAuth(
+    final opened = await client.auth.signInWithOAuth(
       OAuthProvider.google,
       redirectTo: 'io.supabase.calamansicare://login-callback/',
+      authScreenLaunchMode: LaunchMode.externalApplication,
     );
+    if (!opened) throw StateError('Could not open Google sign-in.');
+    return opened;
   }
 
   Future<void> sendPasswordResetEmail(String email) async {
@@ -871,6 +874,7 @@ class DiagnosisRepository {
         d.disease,
         d.confidence,
         d.batch_id,
+        d.created_at AS scanned_at,
         d.image_path
       FROM queued_reports r
       JOIN diagnoses d ON d.id = r.diagnosis_id
@@ -929,6 +933,7 @@ class DiagnosisRepository {
           'consent': report['consent'] == 1,
           'status': reportStatusSynced,
           'reported_at': report['created_at'],
+          'scanned_at': report['scanned_at'],
           'synced_at': DateTime.now().toUtc().toIso8601String(),
         }, onConflict: 'local_report_id').timeout(const Duration(seconds: 20));
         uploaded
@@ -1010,7 +1015,7 @@ class DiagnosisRepository {
     final file = File(imagePath);
     if (!await file.exists()) return null;
 
-    final compressedImage = await _compressReportImage(file);
+    final compressedImage = await compressReportImage(file);
     final storagePath = reportImageStoragePath(farmerName, localReportId);
 
     await client.storage.from(reportImagesBucket).uploadBinary(
@@ -1022,11 +1027,13 @@ class DiagnosisRepository {
     return client.storage.from(reportImagesBucket).getPublicUrl(storagePath);
   }
 
-  Future<Uint8List> _compressReportImage(File file) async {
+  @visibleForTesting
+  Future<Uint8List> compressReportImage(File file) async {
     if (await file.length() > maxSourceImageBytes) {
       throw const FormatException('Image exceeds the size limit.');
     }
-    return encodeReportImage(await file.readAsBytes());
+    return compute(encodeReportImage, await file.readAsBytes(),
+        debugLabel: 'CalamansiCare report compression');
   }
 
   Future<List<CommunityReport>> fetchCommunityReports() async {

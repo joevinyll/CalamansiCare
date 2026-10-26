@@ -69,8 +69,58 @@ class FakeCommunityRepository extends CommunityRepository {
   CommunityAudience publishedAudience = CommunityAudience.community;
   CommunityAudience editedAudience = CommunityAudience.community;
   int toggleCalls = 0;
+  final likeChanges = StreamController<List<Map<String, dynamic>>>.broadcast();
   int postSubscriptions = 0;
   Object? postsError;
+  Object? pageError;
+  int pageCalls = 0;
+  Map<String, dynamic>? lastCursor;
+  @override
+  Future<List<Map<String, dynamic>>> postPage(
+      {required bool own, Map<String, dynamic>? before}) async {
+    if (before == null) {
+      postSubscriptions++;
+      if (postsError != null) throw postsError!;
+    } else {
+      pageCalls++;
+      lastCursor = before;
+      if (pageError != null) throw pageError!;
+    }
+    int compare(Map<String, dynamic> a, Map<String, dynamic> b) {
+      final date = '${b['created_at']}'.compareTo('${a['created_at']}');
+      return date != 0 ? date : '${b['id']}'.compareTo('${a['id']}');
+    }
+
+    final candidates = rows
+        .where(
+            (p) => own ? p['user_id'] == userId : p['visibility'] != 'only_me')
+        .toList()
+      ..sort(compare);
+    return candidates
+        .where((p) => before == null || compare(p, before) > 0)
+        .take(communityPageSize)
+        .toList();
+  }
+
+  @override
+  Stream<CommunityPostChange> postChanges({required bool own}) async* {
+    var previous = {for (final row in rows) row['id']: row};
+    await for (final snapshot in changes.stream) {
+      final next = {for (final row in snapshot) row['id']: row};
+      for (final id in previous.keys.where((id) => !next.containsKey(id))) {
+        yield (deleted: true, row: previous[id]!);
+      }
+      for (final row in snapshot) {
+        if (own ? row['user_id'] == userId : row['visibility'] != 'only_me') {
+          yield (deleted: false, row: row);
+        } else if (previous.containsKey(row['id'])) {
+          yield (deleted: true, row: previous[row['id']]!);
+        }
+      }
+      previous = next;
+    }
+  }
+
   String? editedId, deletedId;
   bool editFails = false;
   @override
@@ -109,7 +159,11 @@ class FakeCommunityRepository extends CommunityRepository {
   Stream<List<Map<String, dynamic>>> comments(String? postId) =>
       Stream.value(replies);
   @override
-  Stream<List<Map<String, dynamic>>> likes() => Stream.value([]);
+  Stream<List<Map<String, dynamic>>> likes() async* {
+    yield [];
+    yield* likeChanges.stream;
+  }
+
   @override
   Future<void> publish(String text, String name, List<File> photos,
       {CommunityAudience audience = CommunityAudience.community}) async {
@@ -131,6 +185,7 @@ class FakeCommunityRepository extends CommunityRepository {
   }
 
   Future<void> close() async {
+    unawaited(likeChanges.close());
     unawaited(notificationChanges.close());
     unawaited(changes.close());
     unawaited(client.dispose());

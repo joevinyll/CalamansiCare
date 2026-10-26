@@ -60,12 +60,15 @@ The updated app distinguishes schema errors from connection failures.
    to enable editing. It grants updates only to the post body, with RLS
    restricting edits to the author; ownership and counters remain protected.
    My posts (article icon beside the bell) lists the signed-in author's posts,
-   independently of the main feed's 50-post limit. Its post menu supports text
+   using the same incremental loading as Community. Its post menu supports text
    editing and confirmed deletion. Editing retains the original photo.
    Pull down on the post list to fetch fresh data. Community randomly orders
-   the 50 recent posts each visit/refresh and keeps that order stable during
-   live updates. My posts remains newest-first. This is not random sampling
-   of the entire historical database.
+   each 20-post page and appends later pages without reshuffling existing cards.
+   My posts remains newest-first. Pages use a created-at/ID cursor, and cards
+   and images are built only near the viewport. Refresh resets pagination;
+   failed next pages retain visible posts and provide a retry button.
+   Realtime updates apply to loaded records without fetching the full feed.
+   No additional database migration is required for pagination.
 10. Run `supabase/migrations/20261023060000_community_post_gallery.sql`
     once before using the multi-image app. Posts accept up to five images;
     the database validates their count and owner/post-specific object paths.
@@ -107,20 +110,61 @@ Use a full restart, not only hot reload, after adding the new screens.
 ## Verify Live Behavior With Two Accounts
 
 1. Sign in on two devices with different accounts. Open Community on both.
-2. Publish text and a gallery/camera photo from account A. It should appear
-   on B without refreshing. A disabled Post button/spinner prevents repeat taps.
+2. Publish text and a gallery/camera photo from account A. B should see a
+   New posts button without the current feed jumping. Tap it to show the new
+   posts, or pull down to refresh. A disabled Post button/spinner prevents repeat taps.
 3. Like/unlike on B; confirm the count changes on A. A user can like each
    target once. The counts are server-maintained, not client-editable.
 4. Comment and reply on B. Open Comments on A and check the new text appears.
    Reply-to-parent validation rejects cross-post replies and deeper nesting.
 5. Delete a comment/post as its author; verify removal on the other device.
    Other accounts must not be able to delete it, even through a direct API call.
-6. Search by author or post text. Search currently covers the 50 recent posts
-   loaded into the feed, not all historical content.
-7. Open the bell: it shows live engagement counts on your recent posts. It is
-   not OS push notifications and does not have an unread inbox.
+6. Search by author or post text. Search covers loaded pages. Load more posts
+   to extend the search; it does not download all historical content at once.
+7. Open the bell: it shows real notification events with persisted unread state.
+   It is not OS push notifications; see the Notifications setup above.
 8. Check offline/error behavior. Failed actions retain typed drafts. Posting
    requires an online signed-in account; diagnosis scanning remains offline.
+
+## Feed Performance Checks
+
+- Android 7/API 24 remains the minimum. Keep the lazy list, 20-post keyset
+  pages and 400-pixel data-prefetch threshold; do not fetch every post upfront.
+- Post edits and engagement counts notify individual cards. Only changed liked
+  states notify their cards; incoming posts wait behind the New posts button.
+  Searching still re-filters live edits, and deletes remove content immediately.
+- Photos retain a fixed 4:3 viewport and decode within a display-sized box
+  capped at 720 by 720 pixels. Only the selected gallery image is built.
+  Flutter's Image widget already defers uncached image resolution during fast
+  scrolling. Plain placeholders avoid continuously animating off-screen loaders.
+- Signed-image URL metadata is limited to 128 entries per repository. Entering
+  Community caps Flutter's shared decoded-image cache at 32 MiB for the rest of
+  the app session (or preserves an already lower limit). This also affects other
+  screens: evicted photos may need downloading/decoding again on return. Visible
+  image buffers and GPU textures are additional memory, not included in this cap.
+  Flutter's memory-pressure handling remains enabled. Feed
+  post metadata still grows with pages read; this is not a bounded page-window
+  implementation. Profile very long sessions before adding bidirectional eviction.
+- Run the synthetic photo workload on a connected Android phone in profile mode:
+
+  ```powershell
+  flutter drive --profile --no-dds --no-pub --driver=test_driver/community_scroll.dart --target=integration_test/community_scroll_test.dart -d <device-id>
+  ```
+
+  Results are written to `build/performance/community_scroll.json`, including
+  build/raster frame times, page requests and image-cache bytes. This uses fake
+  posts and locally served 1600x1200 test images, not production accounts or data.
+  It installs a test entry point under the app ID; reinstall the normal app after
+  running it. Do not uninstall or clear storage if preserving sign-in and drafts.
+  A passing test is not a 60/120-fps guarantee. Repeat on an actual low-memory
+  device with real photo posts and slow networking before claiming that target.
+
+  On 2026-10-27, the connected Android 16 phone completed 1,477 measured frames:
+  average build 1.04 ms, raster 2.43 ms. Five build frames and one raster frame
+  exceeded the test's 16.7 ms budget. Cached image bytes fell from 104,198,400
+  to 32,659,200 when lowering the cache ceiling, with 83 photo requests and five
+  additional pages in each run. This is a synthetic smoke test, not a comparison
+  against the original unoptimized app or validation on Android 7 hardware.
 
 ## Privacy and Operations
 

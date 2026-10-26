@@ -30,7 +30,7 @@ String communityErrorMessage(Object? error) {
     return 'The Community service could not complete this request. Please try again.';
   }
   if (error is SocketException) {
-    return 'Could not reach Community. Check your internet connection and try again.';
+    return 'Please check your internet connection to see the Community feed.';
   }
   if (error is TimeoutException) {
     return 'Community took too long to respond. Please try again.';
@@ -45,6 +45,8 @@ String communityDisplayName(String name) {
 }
 
 const maxCommunityPhotos = 5;
+const communityPageSize = 20;
+typedef CommunityPostChange = ({bool deleted, Map<String, dynamic> row});
 
 enum CommunityAudience {
   community,
@@ -94,12 +96,62 @@ class CommunityRepository {
       .stream(primaryKey: ['id'])
       .eq('visibility', 'community')
       .order('created_at', ascending: false)
-      .limit(50);
+      .limit(communityPageSize);
   Stream<List<Map<String, dynamic>>> myPosts() => client
       .from('community_posts')
       .stream(primaryKey: ['id'])
       .eq('user_id', userId)
-      .order('created_at', ascending: false);
+      .order('created_at', ascending: false)
+      .limit(communityPageSize);
+
+  Stream<CommunityPostChange> postChanges({required bool own}) {
+    late RealtimeChannel channel;
+    late StreamController<CommunityPostChange> events;
+    events = StreamController<CommunityPostChange>(onListen: () {
+      channel = client
+          .channel('community-page-${Random.secure().nextInt(1 << 32)}')
+          .onPostgresChanges(
+              event: PostgresChangeEvent.all,
+              schema: 'public',
+              table: 'community_posts',
+              filter: PostgresChangeFilter(
+                  type: PostgresChangeFilterType.eq,
+                  column: own ? 'user_id' : 'visibility',
+                  value: own ? userId : 'community'),
+              callback: (event) {
+                if (!events.isClosed) {
+                  events.add((
+                    deleted: event.eventType == PostgresChangeEvent.delete,
+                    row: event.eventType == PostgresChangeEvent.delete
+                        ? event.oldRecord
+                        : event.newRecord
+                  ));
+                }
+              })
+          .subscribe();
+    }, onCancel: () async {
+      await client.removeChannel(channel);
+    });
+    return events.stream;
+  }
+
+  Future<List<Map<String, dynamic>>> postPage(
+      {required bool own, Map<String, dynamic>? before}) async {
+    var query = client.from('community_posts').select();
+    query =
+        own ? query.eq('user_id', userId) : query.eq('visibility', 'community');
+    if (before != null) {
+      final date = before['created_at'];
+      final id = before['id'];
+      query =
+          query.or('created_at.lt.$date,and(created_at.eq.$date,id.lt.$id)');
+    }
+    return await query
+        .order('created_at', ascending: false)
+        .order('id', ascending: false)
+        .limit(communityPageSize)
+        .timeout(const Duration(seconds: 20));
+  }
 
   Future<void> editPost(String id, String text,
       {CommunityAudience audience = CommunityAudience.community}) async {
@@ -147,6 +199,8 @@ class CommunityRepository {
       return cached.url;
     }
     final url = await client.storage.from(bucket).createSignedUrl(path, 3600);
+    _urls.removeWhere((_, entry) => entry.expires.isBefore(DateTime.now()));
+    if (_urls.length >= 128) _urls.remove(_urls.keys.first);
     _urls[key] =
         (url: url, expires: DateTime.now().add(const Duration(minutes: 50)));
     return url;

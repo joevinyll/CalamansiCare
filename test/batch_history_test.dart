@@ -64,6 +64,55 @@ void main() {
     expect(find.textContaining('check the report service'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+  for (final initiallyOffline in [true, false]) {
+    testWidgets(
+        'Offline report reveals full-width dashboard button (initial: $initiallyOffline)',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 740);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final state = AppState(persistSettings: false)
+        ..isOnline = !initiallyOffline;
+      addTearDown(state.dispose);
+      final batch = ScanHistoryBatch(List.generate(
+          9,
+          (i) => row(i + 1,
+              batch: 'offline',
+              status: reportStatusWaitingInternet,
+              disease: [
+                'Citrus Canker',
+                'Melanose',
+                'HLB (Greening)'
+              ][i % 3])));
+      await tester.pumpWidget(AnimatedBuilder(
+          animation: state,
+          builder: (context, _) => AppScope(
+              state: state,
+              child:
+                  MaterialApp(home: BatchReportSummaryScreen(batch: batch)))));
+      await tester.pumpAndSettle();
+      if (!initiallyOffline) {
+        state.isOnline = false;
+        await state.setConsent(false);
+        await tester.pumpAndSettle();
+      }
+      expect(find.text('Go to Dashboard').hitTestable(), findsOneWidget);
+      final dashboard = find.widgetWithText(OutlinedButton, 'Go to Dashboard');
+      final retry = find.widgetWithText(FilledButton, 'Try sending now');
+      expect(tester.getSize(dashboard).width, tester.getSize(retry).width);
+      final position =
+          tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+      expect(position.pixels, closeTo(position.maxScrollExtent, 1));
+      position.jumpTo(0);
+      await tester.pumpAndSettle();
+      await state.setConsent(true);
+      await tester.pumpAndSettle();
+      expect(position.pixels, 0,
+          reason: 'Ordinary rebuilds must not force another scroll');
+      expect(tester.takeException(), isNull);
+    });
+  }
   testWidgets('Single batch preview stays square instead of stretching',
       (tester) async {
     final state = AppState(persistSettings: false);

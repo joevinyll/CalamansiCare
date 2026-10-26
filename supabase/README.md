@@ -141,7 +141,7 @@ Auth and calls the ownership, consent, rate-limit, and replay checks in
 the address entered on the report and is not independently verified as an
 official office address.
 
-Report emails include the consented farm location, recipient, report ID,
+Report emails include the consented farm location, recipient, authenticated farmer email,
 diagnosis, confidence, uploaded image, disease type, risk and priority. Device
 identifiers are not displayed. High priority follows the app's HLB/Citrus Canker
 classification; other recognized diseases use Medium, and healthy results use
@@ -149,6 +149,47 @@ Routine / No Risk without treatment sections. These are app triage labels, not
 an official severity assessment. Delivery is one email per scan batch and
 recipient (up to ten images), after all queued images in that batch upload.
 Legacy scans without a batch ID remain individual reports.
+
+### Updated report letter rollout
+
+1. Run `migrations/20261027000000_report_scan_timestamps.sql` in this project's
+   Supabase SQL Editor before running the updated app. It only adds a nullable
+   `scanned_at` timestamp; it does not delete or rewrite existing reports.
+2. Deploy the updated function from the repository root:
+
+   ```powershell
+   supabase functions deploy send-report-email --project-ref YOUR_PROJECT_REF
+   ```
+
+   Keep JWT verification enabled. Existing email-provider secrets remain in use;
+   no new provider keys are required. Include the imported `care-content.ts` file.
+3. Hot reload a running debug app, or rebuild/run an installed profile app, then
+   send a new batch. The app now sends each saved diagnosis's actual timestamp.
+   Old clients do not supply that timestamp; old emails cannot be changed.
+
+The letter starts with the farmer's name and email, location and recipient,
+followed by compact scan/submission timestamps in Philippine time. The farmer
+email comes only from Supabase Auth's validated caller, never from request JSON
+or the recipient field. It is not added to Community's public views.
+
+The results table is followed immediately by a red warning when any image has
+an HLB or Citrus Canker prediction. The notice explains the suspected bacterial
+disease, asks staff to arrange prompt assessment and prevent spread, and warns
+against ordering destructive or pesticide interventions solely from AI output.
+An unknown label never hides an otherwise High priority batch.
+
+Recommendations come before the photos, use coloured headings and highlighted
+keywords, and split the existing guidance into bullets without changing it.
+Healthy results have no disease-treatment section or high-risk warning.
+All photos remain embedded at the bottom, labelled `Image N: Disease (Type)`,
+with confidence, risk and each original scan time. They are not attachments.
+Internal device/report identifiers remain in delivery records for replay
+protection but are not displayed in the letter. Existing storage URLs are not
+renamed; some older image URLs may still contain legacy identifiers.
+
+Missing legacy scan timestamps explicitly show `Not recorded`; submission time
+is never substituted for scan time. Email clients may require image loading
+to be enabled before displaying the embedded photos.
 
 The backend English guidance in `functions/send-report-email/care-content.ts`
 mirrors `lib/data/treatment_content.dart`. Verify content parity and templates

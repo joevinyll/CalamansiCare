@@ -109,14 +109,21 @@ class SecureAuthStorage extends LocalStorage {
 class SecurePkceStorage extends GotrueAsyncStorage {
   SecurePkceStorage({this.legacy});
   final LocalStorage? legacy;
+  // Supabase initializes session storage, but not this PKCE fallback store.
+  late final Future<void> _legacyReady = legacy?.initialize() ?? Future.value();
   @override
-  Future<String?> getItem({required String key}) async =>
-      await authSecureStorage.read(key: key) ?? await legacy?.accessToken();
+  Future<String?> getItem({required String key}) async {
+    await _legacyReady;
+    return await authSecureStorage.read(key: key) ??
+        await legacy?.accessToken();
+  }
+
   @override
   Future<void> setItem({required String key, required String value}) =>
       authSecureStorage.write(key: key, value: value);
   @override
   Future<void> removeItem({required String key}) async {
+    await _legacyReady;
     await authSecureStorage.delete(key: key);
     await legacy?.removePersistedSession();
   }

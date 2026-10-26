@@ -15,6 +15,110 @@ void disposeCommunityScreen(WidgetTester tester, AppState state) {
 }
 
 void main() {
+  testWidgets('New posts appear without resizing or moving the feed',
+      (tester) async {
+    final repo = FakeCommunityRepository();
+    addTearDown(repo.close);
+    final source = repo.rows.first;
+    repo.rows = List.generate(
+        20, (i) => {...source, 'id': 'post-$i', 'body': 'Post $i'});
+    final state = AppState(persistSettings: false)..farmerName = 'Maria Santos';
+    disposeCommunityScreen(tester, state);
+    await tester.pumpWidget(AppScope(
+        state: state,
+        child: MaterialApp(home: CommunityFeedScreen(repository: repo))));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).last, const Offset(0, -350));
+    expect(PaintingBinding.instance.imageCache.maximumSizeBytes,
+        lessThanOrEqualTo(32 * 1024 * 1024));
+    await tester.pumpAndSettle();
+    final list = find.byType(ListView).last;
+    final beforeRect = tester.getRect(list);
+    final controller = tester.widget<ListView>(list).controller!;
+    final beforeOffset = controller.offset;
+    repo.rows = [
+      {
+        ...source,
+        'id': 'new',
+        'body': 'Incoming harvest',
+        'created_at': '2026-10-27T00:00:00Z'
+      },
+      ...repo.rows
+    ];
+    repo.changes.add(repo.rows);
+    await tester.pumpAndSettle();
+    expect(find.text('1 new post'), findsOneWidget);
+    expect(tester.getRect(list), beforeRect);
+    expect(controller.offset, beforeOffset);
+    expect(find.text('Incoming harvest'), findsNothing);
+    await tester.tap(find.text('1 new post'));
+    await tester.pumpAndSettle();
+    expect(find.text('Incoming harvest'), findsOneWidget);
+    expect(controller.offset, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final dpr in [1.0, 3.0]) {
+    testWidgets('Gallery bounds decoded pixels at device scale $dpr',
+        (tester) async {
+      tester.view.devicePixelRatio = dpr;
+      tester.view.physicalSize = Size(320 * dpr, 740 * dpr);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetPhysicalSize);
+      await tester.pumpWidget(MaterialApp(
+          home: Scaffold(
+              body: Align(
+                  alignment: Alignment.topCenter,
+                  child: CommunityImageGallery(
+                      paths: List.filled(
+                          5, File('assets/app_icon.png').absolute.path))))));
+      await tester.pumpAndSettle();
+      expect(find.byType(Image), findsOneWidget);
+      final image = tester.widget<Image>(find.byType(Image));
+      final provider = image.image as ResizeImage;
+      expect(provider.width, dpr == 1 ? 320 : 720);
+      expect(provider.height, provider.width);
+      expect(provider.policy, ResizeImagePolicy.fit);
+      expect(tester.getSize(find.byType(Image)).height, 240);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets(
+      'Scrolling near the end fetches another page and builds only nearby cards',
+      (tester) async {
+    final repo = FakeCommunityRepository();
+    addTearDown(repo.close);
+    final source = repo.rows.first;
+    repo.rows = List.generate(
+        45,
+        (i) => {
+              ...source,
+              'id': 'post-${i.toString().padLeft(3, '0')}',
+              'body': 'Paged post $i'
+            });
+    final state = AppState(persistSettings: false)..farmerName = 'Maria Santos';
+    disposeCommunityScreen(tester, state);
+    await tester.pumpWidget(AppScope(
+        state: state,
+        child: MaterialApp(home: CommunityFeedScreen(repository: repo))));
+    await tester.pumpAndSettle();
+    expect(repo.postSubscriptions, 1);
+    expect(repo.pageCalls, 0);
+    expect(
+        tester
+            .widgetList<Text>(find.byType(Text))
+            .where((text) => (text.data ?? '').startsWith('Paged post'))
+            .length,
+        lessThan(20));
+    for (var i = 0; i < 15 && repo.pageCalls == 0; i++) {
+      await tester.drag(find.byType(ListView).last, const Offset(0, -1000));
+      await tester.pumpAndSettle();
+    }
+    expect(repo.pageCalls, greaterThan(0));
+    expect(repo.lastCursor, isNotNull);
+    expect(tester.takeException(), isNull);
+  });
   testWidgets('Bell badge reflects unread events and empty page lists no posts',
       (tester) async {
     final repo = FakeCommunityRepository();

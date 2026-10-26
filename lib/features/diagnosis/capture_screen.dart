@@ -18,7 +18,6 @@ class _CaptureScreenState extends State<CaptureScreen>
   bool _busy = false;
   bool _initializing = true;
   FlashMode _flashMode = FlashMode.off;
-  bool _changingFlash = false;
   String? _cameraError;
 
   @override
@@ -43,7 +42,7 @@ class _CaptureScreenState extends State<CaptureScreen>
     }
     CameraController? controller;
     try {
-      await previous?.dispose();
+      await _disposeCamera(previous);
       if (!mounted || generation != _generation) return;
       _cameras = await availableCameras();
       if (!mounted || generation != _generation) return;
@@ -54,14 +53,16 @@ class _CaptureScreenState extends State<CaptureScreen>
       controller = CameraController(
           _cameras[_cameraIndex], ResolutionPreset.high,
           enableAudio: false);
-      await controller.initialize();
+      await controller.initialize().timeout(const Duration(seconds: 10));
       try {
-        await controller.setFlashMode(FlashMode.off);
+        await controller
+            .setFlashMode(FlashMode.off)
+            .timeout(const Duration(seconds: 3));
       } on CameraException {
         // Cameras without flash can still capture images.
       }
       if (!mounted || generation != _generation) {
-        await controller.dispose();
+        await _disposeCamera(controller);
         return;
       }
       setState(() {
@@ -70,7 +71,7 @@ class _CaptureScreenState extends State<CaptureScreen>
         _flashMode = FlashMode.off;
       });
     } catch (error) {
-      await controller?.dispose();
+      await _disposeCamera(controller);
       if (mounted && generation == _generation) {
         setState(() {
           _initializing = false;
@@ -86,7 +87,16 @@ class _CaptureScreenState extends State<CaptureScreen>
     final controller = _camera;
     _camera = null;
     if (mounted) setState(() {});
-    await controller?.dispose();
+    await _disposeCamera(controller);
+  }
+
+  Future<void> _disposeCamera(CameraController? controller) async {
+    if (controller == null) return;
+    try {
+      await controller.dispose().timeout(const Duration(seconds: 3));
+    } catch (_) {
+      /* A stalled native camera must not hold the screen busy forever. */
+    }
   }
 
   @override
@@ -102,7 +112,7 @@ class _CaptureScreenState extends State<CaptureScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     ++_generation;
-    _camera?.dispose();
+    unawaited(_disposeCamera(_camera));
     super.dispose();
   }
 
@@ -150,8 +160,20 @@ class _CaptureScreenState extends State<CaptureScreen>
     }
     setState(() => _busy = true);
     try {
-      final file = await controller.takePicture();
-      if (mounted) setState(() => _images.add(file));
+      // Apply flash once per shot; rapid selector taps never queue native calls.
+      if (controller.value.flashMode != _flashMode) {
+        await controller
+            .setFlashMode(_flashMode)
+            .timeout(const Duration(seconds: 3));
+      }
+      final file =
+          await controller.takePicture().timeout(const Duration(seconds: 10));
+      if (mounted && identical(controller, _camera)) {
+        setState(() => _images.add(file));
+      }
+    } on TimeoutException {
+      _notice('Camera did not respond. Restarting the camera.');
+      if (mounted && identical(controller, _camera)) await _initializeCamera();
     } catch (_) {
       _notice('Could not capture the image. Please try again.');
     } finally {
@@ -168,25 +190,15 @@ class _CaptureScreenState extends State<CaptureScreen>
     if (mounted) setState(() => _busy = false);
   }
 
-  Future<void> _toggleFlash() async {
+  void _toggleFlash() {
     final controller = _camera;
-    if (controller == null || _busy || _changingFlash) return;
+    if (controller == null || _busy || _initializing) return;
     final nextMode = switch (_flashMode) {
       FlashMode.off => FlashMode.always,
       FlashMode.always => FlashMode.auto,
       _ => FlashMode.off,
     };
-    setState(() => _changingFlash = true);
-    try {
-      await controller.setFlashMode(nextMode);
-      if (mounted && identical(controller, _camera)) {
-        setState(() => _flashMode = nextMode);
-      }
-    } catch (_) {
-      _notice('Flash is unavailable on this camera.');
-    } finally {
-      if (mounted) setState(() => _changingFlash = false);
-    }
+    setState(() => _flashMode = nextMode);
   }
 
   Future<void> _scan() async {
@@ -260,7 +272,7 @@ class _CaptureScreenState extends State<CaptureScreen>
                             _ => 'Flash off',
                           },
                           onPressed:
-                              controller == null || _busy || _changingFlash
+                              controller == null || _busy || _initializing
                                   ? null
                                   : _toggleFlash,
                           style: IconButton.styleFrom(

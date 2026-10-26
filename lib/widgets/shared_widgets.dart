@@ -349,8 +349,7 @@ class OfflinePill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final online = label.toLowerCase().contains('online') &&
-        !label.toLowerCase().contains('offline');
+    final online = AppScope.of(context).isOnline;
     return Align(
       alignment: Alignment.centerRight,
       child: Container(
@@ -362,7 +361,7 @@ class OfflinePill extends StatelessWidget {
         child: Text(
           context.t(label),
           style: TextStyle(
-            color: online ? CcColors.green : CcColors.orange,
+            color: online ? CcColors.green : const Color(0xFF94510B),
             fontSize: 10,
             fontWeight: FontWeight.w800,
           ),
@@ -574,6 +573,9 @@ class PrimaryButton extends StatelessWidget {
           backgroundColor: color,
           foregroundColor: Colors.white,
           disabledBackgroundColor: CcColors.line,
+          disabledForegroundColor: CcColors.muted,
+          elevation: onPressed == null ? 0 : 1,
+          shadowColor: CcColors.green.withValues(alpha: .18),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(8),
           ),

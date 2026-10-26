@@ -24,7 +24,7 @@ void main() {
             const PostgrestException(message: 'missing', code: 'PGRST205')),
         contains('setup is incomplete'));
     expect(communityErrorMessage(const SocketException('unreachable')),
-        contains('internet'));
+        'Please check your internet connection to see the Community feed.');
     expect(communityErrorMessage(TimeoutException('timeout')),
         contains('too long'));
   });

@@ -28,12 +28,16 @@ dependencies:
   sticky_headers: ^0.3.0+2
   audioplayers: ^6.8.1
 dev_dependencies:
+  integration_test:
+    sdk: flutter
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
   sqflite_common_ffi: ^2.4.3
   flutter_secure_storage_platform_interface: ^2.1.1
   shared_preferences: ^2.5.5
+  camera_platform_interface: ^2.15.0
+  xml: ^7.0.1
 
 flutter:
   uses-material-design: true

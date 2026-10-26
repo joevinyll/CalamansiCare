@@ -313,21 +313,31 @@ class _CommunityPhotoState extends State<_CommunityPhoto> {
       aspectRatio: 4 / 3,
       child: ClipRRect(
           borderRadius: BorderRadius.circular(6),
-          child: FutureBuilder<String>(
-              future: _url,
-              builder: (context, snapshot) => snapshot.hasData
-                  ? Image.network(snapshot.data!,
-                      fit: BoxFit.cover,
-                      cacheWidth: 900,
-                      errorBuilder: (_, __, ___) => const Center(
-                          child: Icon(Icons.broken_image_outlined)))
-                  : ColoredBox(
-                      color: CcColors.bg,
-                      child: Center(
+          child: LayoutBuilder(
+              builder: (context, constraints) => FutureBuilder<String>(
+                  future: _url,
+                  builder: (context, snapshot) => snapshot.hasData
+                      ? Image(
+                          image: _communityPhotoProvider(context, constraints,
+                              NetworkImage(snapshot.data!)),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const Center(
+                              child: Icon(Icons.broken_image_outlined)))
+                      : ColoredBox(
+                          color: CcColors.bg,
                           child: snapshot.hasError
-                              ? const Icon(Icons.broken_image_outlined)
-                              : const CircularProgressIndicator(
-                                  strokeWidth: 2))))));
+                              ? const Center(
+                                  child: Icon(Icons.broken_image_outlined))
+                              : const SizedBox.expand())))));
+}
+
+ImageProvider _communityPhotoProvider(
+    BuildContext context, BoxConstraints constraints, ImageProvider source) {
+  final pixels = constraints.maxWidth * MediaQuery.devicePixelRatioOf(context);
+  final size = min(720, max(64, (pixels / 64).ceil() * 64));
+  // Bound both axes: a tall original must not allocate a huge decoded bitmap.
+  return ResizeImage(source,
+      width: size, height: size, policy: ResizeImagePolicy.fit);
 }
 
 class CommunityImageGallery extends StatefulWidget {
@@ -356,11 +366,13 @@ class _CommunityImageGalleryState extends State<CommunityImageGallery> {
               aspectRatio: 4 / 3,
               child: ClipRRect(
                   borderRadius: BorderRadius.circular(6),
-                  child: Image.file(File(path),
-                      fit: BoxFit.cover,
-                      cacheWidth: 900,
-                      errorBuilder: (_, __, ___) =>
-                          const Icon(Icons.broken_image_outlined)))),
+                  child: LayoutBuilder(
+                      builder: (context, constraints) => Image(
+                          image: _communityPhotoProvider(
+                              context, constraints, FileImage(File(path))),
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) =>
+                              const Icon(Icons.broken_image_outlined))))),
         if (widget.onRemove != null)
           Positioned(
               right: 4,
@@ -413,7 +425,8 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen>
     with WidgetsBindingObserver {
   CommunityRepository? _repo;
   CommunityNotifications? _notifications;
-  Stream<List<Map<String, dynamic>>>? _posts, _likes;
+  CommunityFeedController? _feed;
+  final _scroll = ScrollController();
   String _search = '';
   bool _searching = false;
   bool _keyboardOpen = false;
@@ -421,6 +434,18 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _scroll.addListener(_nearEnd);
+    // Flutter shares this cache across screens; keep its budget low after entering the feed.
+    final cache = PaintingBinding.instance.imageCache;
+    cache.maximumSizeBytes = min(cache.maximumSizeBytes, 32 * 1024 * 1024);
+  }
+
+  void _nearEnd() {
+    if (_scroll.hasClients &&
+        _scroll.position.extentAfter < 400 &&
+        _feed?.pageError == null) {
+      unawaited(_feed?.loadMore());
+    }
   }
 
   @override
@@ -434,50 +459,28 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _notifications?.dispose();
+    _feed?.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
-  final _random = Random();
-  final _postRanks = <String, double>{};
   Future<void> _refreshFeed() async {
-    final ready = Completer<void>();
-    final stream = _loadPosts().transform(StreamTransformer<
-        List<Map<String, dynamic>>,
-        List<Map<String, dynamic>>>.fromHandlers(handleData: (rows, sink) {
-      if (!ready.isCompleted) {
-        _postRanks.clear();
-        ready.complete();
-      }
-      sink.add(rows);
-    }, handleError: (error, stack, sink) {
-      if (!ready.isCompleted) ready.completeError(error, stack);
-      sink.addError(error, stack);
-    }));
-    setState(() {
-      _posts = stream;
-      _likes = _repo!.likes();
-    });
-    await _communityAction(
-        context, () => ready.future.timeout(const Duration(seconds: 20)));
+    if (_scroll.hasClients) _scroll.jumpTo(0);
+    await _feed!.refresh();
   }
 
-  Stream<List<Map<String, dynamic>>> _loadPosts() =>
-      widget.myPosts ? _repo!.myPosts() : _repo!.posts();
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     _keyboardOpen = View.of(context).viewInsets.bottom > 0;
     _repo ??= widget.repository;
-    if (_repo != null && _posts == null) {
-      _posts = _loadPosts();
-      _likes = _repo!.likes();
-    }
     if (_repo == null &&
         AppScope.of(context).isSignedIn &&
         DiagnosisRepository.instance.isSupabaseConfigured) {
       _repo = CommunityRepository(DiagnosisRepository.instance.communityClient);
-      _posts = _loadPosts();
-      _likes = _repo!.likes();
+    }
+    if (_repo != null && _feed == null) {
+      _feed = CommunityFeedController(_repo!, own: widget.myPosts);
     }
     if (_repo != null && !widget.myPosts) {
       _notifications ??= CommunityNotifications(_repo!);
@@ -588,8 +591,10 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen>
                     textInputAction: TextInputAction.search,
                     onSubmitted: (_) => FocusScope.of(context).unfocus(),
                     onTapOutside: (_) => FocusScope.of(context).unfocus(),
-                    onChanged: (value) =>
-                        setState(() => _search = value.toLowerCase().trim()))),
+                    onChanged: (value) {
+                      _search = value.toLowerCase().trim();
+                      _feed!.setSearch(_search);
+                    })),
           if (!widget.myPosts && !keyboardOpen)
             Material(
                 color: Colors.white,
@@ -611,79 +616,118 @@ class _CommunityFeedScreenState extends State<CommunityFeedScreen>
                         ])))),
           const SizedBox(height: 12),
           Expanded(
-              child: StreamBuilder<List<Map<String, dynamic>>>(
-                  stream: _posts,
-                  builder: (context, posts) {
-                    if (posts.hasError) {
-                      return _CommunityError(
-                          error: posts.error, onRetry: _refreshFeed);
-                    }
-                    if (!posts.hasData) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
-                    final rows = posts.data!
-                        .where((p) =>
-                            widget.myPosts || p['visibility'] != 'only_me')
-                        .where((p) =>
-                            !widget.myPosts || p['user_id'] == _repo!.userId)
-                        .where((p) => '${p['body']} ${p['author_name']}'
-                            .toLowerCase()
-                            .contains(_search))
-                        .toList();
-                    if (!widget.myPosts) {
-                      final ids =
-                          posts.data!.map((p) => p['id'] as String).toSet();
-                      _postRanks.removeWhere((id, _) => !ids.contains(id));
-                      for (final id in ids) {
-                        _postRanks.putIfAbsent(id, _random.nextDouble);
+              child: Stack(children: [
+            Positioned.fill(
+                child: AnimatedBuilder(
+                    animation: _feed!,
+                    builder: (context, _) {
+                      if (_feed!.error != null) {
+                        return _CommunityError(
+                            error: _feed!.error, onRetry: _refreshFeed);
                       }
-                      rows.sort((a, b) =>
-                          _postRanks[a['id']]!.compareTo(_postRanks[b['id']]!));
-                    }
-                    if (rows.isEmpty) {
-                      return RefreshIndicator(
-                          onRefresh: _refreshFeed,
-                          child: ListView(
-                              padding: EdgeInsets.only(
-                                  bottom: keyboardOpen ? 0 : 34),
-                              keyboardDismissBehavior:
-                                  ScrollViewKeyboardDismissBehavior.onDrag,
-                              physics: const AlwaysScrollableScrollPhysics(),
-                              children: [
-                                Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 32),
-                                    child: Text(
-                                        _search.isEmpty
-                                            ? (widget.myPosts
-                                                ? 'You have not shared any posts yet.'
-                                                : 'No community posts yet.')
-                                            : 'No matching posts.',
-                                        textAlign: TextAlign.center))
-                              ]));
-                    }
-                    return StreamBuilder<List<Map<String, dynamic>>>(
-                        stream: _likes,
-                        builder: (context, likes) => RefreshIndicator(
+                      if (!_feed!.loaded) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      final rows = _feed!.rows
+                          .where((p) =>
+                              widget.myPosts || p['visibility'] != 'only_me')
+                          .where((p) =>
+                              !widget.myPosts || p['user_id'] == _repo!.userId)
+                          .toList();
+                      if (rows.isEmpty) {
+                        return RefreshIndicator(
                             onRefresh: _refreshFeed,
-                            child: ListView.separated(
+                            child: ListView(
                                 padding: EdgeInsets.only(
                                     bottom: keyboardOpen ? 0 : 34),
                                 keyboardDismissBehavior:
                                     ScrollViewKeyboardDismissBehavior.onDrag,
                                 physics: const AlwaysScrollableScrollPhysics(),
-                                itemCount: rows.length,
-                                separatorBuilder: (_, __) =>
-                                    const SizedBox(height: 12),
-                                itemBuilder: (context, i) => _CommunityPostCard(
-                                    key: ValueKey(rows[i]['id']),
-                                    repo: _repo!,
-                                    post: rows[i],
-                                    likes: likes.data ?? [],
-                                    comments: const []))));
-                  })),
+                                children: [
+                                  Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                          vertical: 32),
+                                      child: Text(
+                                          _search.isEmpty
+                                              ? (widget.myPosts
+                                                  ? 'You have not shared any posts yet.'
+                                                  : 'No community posts yet.')
+                                              : 'No matching posts.',
+                                          textAlign: TextAlign.center)),
+                                  if (_feed!.hasMore) _pageFooter(),
+                                ]));
+                      }
+                      final indices = {
+                        for (var i = 0; i < rows.length; i++) rows[i]['id']: i
+                      };
+                      return RefreshIndicator(
+                          onRefresh: _refreshFeed,
+                          child: ListView.separated(
+                              controller: _scroll,
+                              scrollCacheExtent:
+                                  const ScrollCacheExtent.pixels(250),
+                              addAutomaticKeepAlives: false,
+                              findItemIndexCallback: (key) =>
+                                  indices[(key as ValueKey<String>).value],
+                              padding: EdgeInsets.only(
+                                  bottom: keyboardOpen ? 0 : 34),
+                              keyboardDismissBehavior:
+                                  ScrollViewKeyboardDismissBehavior.onDrag,
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              itemCount: rows.length + (_feed!.hasMore ? 1 : 0),
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 12),
+                              itemBuilder: (context, i) => i == rows.length
+                                  ? _pageFooter()
+                                  : ValueListenableBuilder<Map<String, dynamic>>(
+                                      key: ValueKey<String>(
+                                          rows[i]['id'] as String),
+                                      valueListenable:
+                                          _feed!.post(rows[i]['id']),
+                                      builder: (context, post, _) =>
+                                          ValueListenableBuilder<bool>(
+                                              valueListenable:
+                                                  _feed!.liked(post['id']),
+                                              builder: (context, liked, _) =>
+                                                  _CommunityPostCard(repo: _repo!, post: post, liked: liked)))));
+                    })),
+            Positioned(
+                top: 4,
+                left: 0,
+                right: 0,
+                child: Center(
+                    child: AnimatedBuilder(
+                        animation: _feed!.newPosts,
+                        builder: (context, _) => _feed!.newPostCount == 0
+                            ? const SizedBox.shrink()
+                            : FilledButton.icon(
+                                icon: const Icon(Icons.arrow_upward, size: 18),
+                                label: Text(
+                                    '${_feed!.newPostCount} new ${_feed!.newPostCount == 1 ? 'post' : 'posts'}'),
+                                onPressed: () {
+                                  if (_scroll.hasClients) _scroll.jumpTo(0);
+                                  _feed!.showNewPosts();
+                                })))),
+          ])),
         ]));
   }
+
+  Widget _pageFooter() => Padding(
+      padding: const EdgeInsets.all(12),
+      child: Center(
+          child: _feed!.loadingMore
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : TextButton.icon(
+                  onPressed: _feed!.loadMore,
+                  icon: Icon(_feed!.pageError == null
+                      ? Icons.expand_more
+                      : Icons.refresh),
+                  label: Text(_feed!.pageError == null
+                      ? 'Load more posts'
+                      : 'Retry loading posts'))));
 }
 
 class _CommunityError extends StatelessWidget {
@@ -711,14 +755,10 @@ class _CommunityError extends StatelessWidget {
 
 class _CommunityPostCard extends StatefulWidget {
   const _CommunityPostCard(
-      {super.key,
-      required this.repo,
-      required this.post,
-      required this.likes,
-      required this.comments});
+      {required this.repo, required this.post, required this.liked});
   final CommunityRepository repo;
   final Map<String, dynamic> post;
-  final List<Map<String, dynamic>> likes, comments;
+  final bool liked;
   @override
   State<_CommunityPostCard> createState() => _CommunityPostCardState();
 }
@@ -728,8 +768,7 @@ class _CommunityPostCardState extends State<_CommunityPostCard> {
   @override
   Widget build(BuildContext context) {
     final p = widget.post;
-    final likes = widget.likes.where((l) => l['post_id'] == p['id']).toList();
-    final liked = likes.any((l) => l['user_id'] == widget.repo.userId);
+    final liked = widget.liked;
     final comments = p['comment_count'] ?? 0;
     return _BatchPanel(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

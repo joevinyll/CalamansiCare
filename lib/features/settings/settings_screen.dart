@@ -129,22 +129,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const Divider(height: 1),
             Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
-                child: Row(children: [
-                  const Icon(Icons.text_fields, size: 24, color: CcColors.dark),
-                  const SizedBox(width: 14),
-                  Expanded(
-                      flex: 2,
-                      child: Text(context.t('Font size'),
-                          style: const TextStyle(
-                              fontSize: 14,
-                              color: CcColors.dark,
-                              fontWeight: FontWeight.w600))),
-                  Expanded(
-                      flex: 3,
-                      child: FontScaleControl(
-                          value: state.fontScale,
-                          onChanged: state.setFontScale))
-                ])),
+                child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.text_fields,
+                          size: 24, color: CcColors.dark),
+                      const SizedBox(width: 14),
+                      Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                            Text(context.t('Font size'),
+                                style: const TextStyle(
+                                    fontSize: 14,
+                                    color: CcColors.dark,
+                                    fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 8),
+                            FontScaleControl(
+                                value: state.fontScale,
+                                onChanged: state.setFontScale),
+                          ]))
+                    ])),
             const Divider(height: 1),
             _SettingsRow(
                 icon: Icons.language,

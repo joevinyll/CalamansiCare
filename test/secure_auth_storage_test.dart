@@ -58,6 +58,37 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
+  test('PKCE callback clears verifier without preinitializing legacy storage',
+      () async {
+    const key = 'supabase.auth.token-code-verifier';
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString('legacy-verifier', 'old-verifier');
+    final storage = SecurePkceStorage(
+        legacy: SharedPreferencesLocalStorage(
+            persistSessionKey: 'legacy-verifier'));
+    await storage.setItem(key: key, value: 'current-verifier');
+    expect(await storage.getItem(key: key), 'current-verifier');
+    await storage.removeItem(key: key);
+    expect(await storage.getItem(key: key), isNull);
+    expect(securePlatform.data[key], isNull);
+    expect(preferences.getString('legacy-verifier'), isNull);
+  });
+
+  test('PKCE fallback initializes once before concurrent legacy reads',
+      () async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString('legacy-verifier', 'old-verifier');
+    final storage = SecurePkceStorage(
+        legacy: SharedPreferencesLocalStorage(
+            persistSessionKey: 'legacy-verifier'));
+    expect(
+        await Future.wait([
+          storage.getItem(key: 'missing-verifier'),
+          storage.getItem(key: 'missing-verifier'),
+        ]),
+        ['old-verifier', 'old-verifier']);
+  });
+
   test('migrates legacy session and PKCE verifier to encrypted-store API',
       () async {
     const sessionKey = 'sb-project-auth-token';
