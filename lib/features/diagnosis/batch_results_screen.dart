@@ -629,28 +629,52 @@ class _BatchCareState extends State<_BatchCare> {
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const SizedBox(height: 8),
           Text('${widget.groups[_selected]!.length} matching images'),
-          Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-            SizedBox(
-                width: MediaQuery.textScalerOf(context).scale(140) + 16,
-                child: Chip(
-                    backgroundColor:
-                        _batchConditionColor(_selected).withValues(alpha: .06),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
-                    side: BorderSide(color: _batchConditionColor(_selected)),
-                    label: Text(
-                        context
-                            .t(_batchRisk(_selected))
-                            .replaceFirst(' risk', ' Risk'),
-                        style: const TextStyle(fontSize: 14)),
-                    avatar: Icon(Icons.warning_amber_rounded,
-                        size: 18, color: _batchConditionColor(_selected)))),
-            const SizedBox(width: 12),
-            Expanded(
-                child: Text(context.t(guidanceFor(_selected).kind),
-                    key: const ValueKey('care-disease-type'),
-                    style: const TextStyle(fontSize: 14, color: CcColors.ink))),
-          ]),
+          Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                SizedBox(
+                    width: MediaQuery.textScalerOf(context).scale(140) + 16,
+                    child: Chip(
+                        backgroundColor: _batchConditionColor(_selected)
+                            .withValues(alpha: .06),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8)),
+                        side:
+                            BorderSide(color: _batchConditionColor(_selected)),
+                        label: Text(
+                            context
+                                .t(_batchRisk(_selected))
+                                .replaceFirst(' risk', ' Risk'),
+                            style: const TextStyle(fontSize: 14)),
+                        avatar: Icon(Icons.warning_amber_rounded,
+                            size: 18, color: _batchConditionColor(_selected)))),
+                Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEDF4F6),
+                      border: Border.all(color: const Color(0xFFD2E3E8)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Icon(
+                          guidanceFor(_selected).kind == 'Bacterial disease'
+                              ? Icons.biotech_outlined
+                              : Icons.eco_outlined,
+                          size: 18,
+                          color: const Color(0xFF275D6B)),
+                      const SizedBox(width: 7),
+                      Flexible(
+                          child: Text(context.t(guidanceFor(_selected).kind),
+                              key: const ValueKey('care-disease-type'),
+                              style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF275D6B)))),
+                    ])),
+              ]),
           if (diseaseSpreadFor(_selected) != null) ...[
             const SizedBox(height: 12),
             _BatchPanel(
@@ -707,9 +731,11 @@ class _BatchCareState extends State<_BatchCare> {
                                         i == 0 ? 'Natural' : 'Conventional'),
                                     style: TextButton.styleFrom(
                                         backgroundColor: Color.lerp(
-                                            const Color(0xFFF6F8FA), CcColors.green,
+                                            const Color(0xFFF6F8FA),
+                                            CcColors.green,
                                             i == 0 ? 1 - progress : progress),
-                                        side: const BorderSide(color: CcColors.line),
+                                        side: const BorderSide(
+                                            color: CcColors.line),
                                         minimumSize: const Size(0, 48),
                                         padding: const EdgeInsets.symmetric(
                                             horizontal: 6),
