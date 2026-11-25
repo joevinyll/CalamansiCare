@@ -42,6 +42,7 @@ All classification outputs, database schemas, and localization files must strict
 * `Healthy Fruit`
 * `Healthy Leaf`
 * `Melanose`
+* `Sooty Mold`
 
 ---
 

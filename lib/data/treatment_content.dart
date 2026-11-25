@@ -174,6 +174,27 @@ const treatmentAdviceByDisease = <String, TreatmentAdvice>{
     prevention:
         'Monitor new flush and young fruit, reduce long leaf-wetness periods, and remove diseased debris from the farm.',
   ),
+  'Sooty Mold': TreatmentAdvice(
+    kind: 'Surface fungal growth',
+    cultural: (
+      english:
+          'Sooty mold grows on honeydew produced by sap-feeding insects such as soft scales, aphids, mealybugs, and whiteflies. Check leaf undersides, shoots, and branches for these pests and sticky honeydew. Wash light mold from plant surfaces with water where practical. Ask an agriculture technician to identify the insect source and advise control; protect beneficial insects.',
+      tagalog:
+          'Tumutubo ang sooty mold sa honeydew na inilalabas ng mga insektong sumisipsip ng katas ng halaman, gaya ng soft scale, aphids, mealybugs, at whiteflies. Suriin ang ilalim ng dahon, mga usbong, at sanga para sa mga peste at malagkit na honeydew. Kung praktikal, banlawan ng tubig ang kaunting amag sa ibabaw ng halaman. Magtanong sa agriculture technician upang matukoy at makontrol ang insektong pinagmumulan nito; pangalagaan ang mga kapaki-pakinabang na insekto.',
+      cebuano:
+          'Motubo ang sooty mold sa honeydew nga ipagawas sa mga insektong mosuyop sa katas sa tanom sama sa soft scale, aphids, mealybugs, ug whiteflies. Susiha ang ilawom sa dahon, mga saha, ug sanga kung adunay mga peste ug sticky nga honeydew. Kung mahimo, hugasi sa tubig ang gamay nga agup-op sa ibabaw sa tanom. Pangayo og tabang sa agriculture technician aron mailhan ug makontrol ang insektong hinungdan niini; panalipdi ang mga mapuslanong insekto.',
+    ),
+    chemical: (
+      english:
+          'Sooty mold is a sign of honeydew-producing insects, so a fungicide alone will not remove its source. Use an insect-control product only after the pest is identified and a locally registered citrus product is confirmed by an agriculture technician. Follow the product label, protective-equipment instructions, and re-entry and pre-harvest intervals.',
+      tagalog:
+          'Palatandaan ng mga insektong gumagawa ng honeydew ang sooty mold, kaya hindi maaalis ng fungicide lamang ang pinagmumulan nito. Gumamit lamang ng produktong pangkontrol ng insekto kapag natukoy na ang peste at nakumpirma ng agriculture technician na rehistrado ito para sa citrus sa inyong lugar. Sundin ang label, mga tagubilin sa protective equipment, at mga panahon bago muling pumasok at mag-ani.',
+      cebuano:
+          'Timailhan sa mga insektong nagpagawas og honeydew ang sooty mold, busa dili makatangtang sa hinungdan niini ang fungicide lamang. Gamita lang ang produkto pangkontrol sa insekto human mailhi ang peste ug makumpirma sa agriculture technician nga rehistrado kini para sa citrus sa inyong lugar. Sunda ang label, mga panudlo sa protective equipment, ug ang panahon sa dili pa mosulod pag-usab o mag-ani.',
+    ),
+    prevention:
+        'Inspect new growth and leaf undersides regularly for honeydew-producing insects. Encourage beneficial insects and seek local advice before using pesticides.',
+  ),
 };
 
 const treatmentHeadings = <TreatmentText>[

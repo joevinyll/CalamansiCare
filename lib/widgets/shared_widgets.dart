@@ -897,6 +897,10 @@ class DiseaseTranslations {
       AppText.tagalog: 'Brown Spot',
       AppText.cebuano: 'Brown Spot',
     },
+    'Sooty Mold': {
+      AppText.tagalog: 'Sooty Mold',
+      AppText.cebuano: 'Sooty Mold',
+    },
     'Description': {
       AppText.tagalog: 'Paglalarawan',
       AppText.cebuano: 'Paglarawan',

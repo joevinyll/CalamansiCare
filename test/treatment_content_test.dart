@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('Supported conditions match the eight-class model output order', () {
+  test('Supported conditions match the nine-class model output order', () {
     expect(diseaseLabels, const [
       'Anthracnose',
       'Brown Spot',
@@ -14,6 +14,7 @@ void main() {
       'Healthy Fruit',
       'Healthy Leaf',
       'Melanose',
+      'Sooty Mold',
     ]);
     expect(treatmentAdviceByDisease.keys, unorderedEquals(diseaseLabels));
   });
