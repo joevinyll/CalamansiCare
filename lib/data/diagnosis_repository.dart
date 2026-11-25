@@ -18,6 +18,25 @@ const reportStatusSyncing = 'syncing';
 const reportStatusSynced = 'synced';
 const reportStatusFailedRetry = 'failed_retry';
 const reportImagesBucket = 'report-images';
+
+@visibleForTesting
+String? historyReportImageUrl(String projectUrl, Object? value) {
+  if (value is! String) return null;
+  final project = Uri.tryParse(projectUrl);
+  final image = Uri.tryParse(value.trim());
+  if (project == null ||
+      project.scheme != 'https' ||
+      project.host.isEmpty ||
+      image == null ||
+      image.scheme != 'https' ||
+      image.host.isEmpty ||
+      image.origin != project.origin ||
+      image.userInfo.isNotEmpty ||
+      !image.path.startsWith('/storage/v1/object/public/$reportImagesBucket/')) {
+    return null;
+  }
+  return image.toString();
+}
 const maxAvatarBytes = 5 * 1024 * 1024;
 
 String reportSyncErrorMessage(Object error) {
@@ -80,7 +99,7 @@ class DiagnosisRepository {
     final databasePath = await getDatabasesPath();
     _database ??= await openDatabase(
       join(databasePath, 'calamansi_care.db'),
-      version: 7,
+      version: 8,
       onCreate: (db, _) async {
         freshInstall = true;
         await _createSchema(db);
@@ -101,7 +120,7 @@ class DiagnosisRepository {
         if (oldVersion < 6) {
           await _upgradeQueuedReportsForCoordinates(db);
         }
-        if (oldVersion < 7) {
+        if (oldVersion < 8) {
           await _upgradeDiagnosisBatches(db);
         }
       },
@@ -181,6 +200,7 @@ class DiagnosisRepository {
       'batch_id': 'TEXT',
       'batch_total_count': 'INTEGER NOT NULL DEFAULT 1',
       'batch_image_index': 'INTEGER NOT NULL DEFAULT 0',
+      'report_image_url': 'TEXT',
     }.entries) {
       if (!names.contains(entry.key)) {
         await db.execute(
@@ -631,6 +651,7 @@ class DiagnosisRepository {
     final user = client?.auth.currentUser;
     if (client == null || user == null) return 0;
     final db = await _db;
+    await _ensureBatchSchema(db);
     final rows = await client
         .from('diagnosis_reports')
         .select()
@@ -643,21 +664,48 @@ class DiagnosisRepository {
       if (currentUser?.id != user.id) return restored;
       final row = Map<String, dynamic>.from(item as Map);
       final localReportId = '${row['local_report_id'] ?? ''}';
+      final imageUrl = historyReportImageUrl(_supabaseUrl, row['image_url']);
+      final batchId = row['batch_id'] as String?;
+      final batchFields = <String, Object?>{
+        if (batchId != null && batchId.isNotEmpty) ...{
+          'batch_id': batchId,
+          'batch_total_count': (row['batch_total_count'] as int?) ?? 1,
+          'batch_image_index': (row['batch_image_index'] as int?) ?? 0,
+        },
+      };
       if (localReportId.trim().isEmpty) continue;
       final existing = await db.query(
         'queued_reports',
-        columns: ['id'],
-        where: 'local_report_id = ?',
-        whereArgs: [localReportId],
+        columns: ['diagnosis_id'],
+        where: 'local_report_id = ? AND user_id = ?',
+        whereArgs: [localReportId, user.id],
         limit: 1,
       );
-      if (existing.isNotEmpty) continue;
+      if (currentUser?.id != user.id) return restored;
+      if (existing.isNotEmpty) {
+        if (batchFields.isNotEmpty) {
+          await db.update('diagnoses', batchFields,
+              where: 'id = ? AND user_id = ? AND batch_id IS NULL',
+              whereArgs: [existing.first['diagnosis_id'], user.id]);
+        }
+        if (imageUrl != null) {
+          await db.update(
+            'diagnoses',
+            {'report_image_url': imageUrl},
+            where: 'id = ? AND user_id = ?',
+            whereArgs: [existing.first['diagnosis_id'], user.id],
+          );
+        }
+        continue;
+      }
       final createdAt =
           '${row['reported_at'] ?? row['created_at'] ?? DateTime.now().toUtc().toIso8601String()}';
       final diagnosisId = await db.insert('diagnoses', {
         'disease': '${row['disease'] ?? 'Unknown'}',
         'confidence': ((row['confidence'] as num?)?.toDouble() ?? 0),
         'image_path': null,
+        'report_image_url': imageUrl,
+        ...batchFields,
         'user_id': user.id,
         'created_at': createdAt,
       });
@@ -874,6 +922,9 @@ class DiagnosisRepository {
         d.disease,
         d.confidence,
         d.batch_id,
+        d.id AS diagnosis_id,
+        d.batch_total_count,
+        d.batch_image_index,
         d.created_at AS scanned_at,
         d.image_path
       FROM queued_reports r
@@ -934,8 +985,21 @@ class DiagnosisRepository {
           'status': reportStatusSynced,
           'reported_at': report['created_at'],
           'scanned_at': report['scanned_at'],
+          if (report['batch_id'] != null) ...{
+            'batch_id': report['batch_id'],
+            'batch_total_count': report['batch_total_count'],
+            'batch_image_index': report['batch_image_index'],
+          },
           'synced_at': DateTime.now().toUtc().toIso8601String(),
         }, onConflict: 'local_report_id').timeout(const Duration(seconds: 20));
+        if (imageUrl != null) {
+          await db.update(
+            'diagnoses',
+            {'report_image_url': imageUrl},
+            where: 'id = ? AND user_id = ?',
+            whereArgs: [report['diagnosis_id'], user.id],
+          );
+        }
         uploaded
             .putIfAbsent(deliveryGroup(report), () => [])
             .add((id: report['id'] as int, reportId: localReportId));
@@ -1000,7 +1064,8 @@ class DiagnosisRepository {
     ).timeout(const Duration(seconds: 20));
     if (response.status >= 300 ||
         response.data is! Map ||
-        response.data['ok'] != true) {
+        response.data['ok'] != true ||
+        response.data['status'] != 'sent') {
       throw StateError('Report email was not accepted.');
     }
   }
@@ -1072,6 +1137,7 @@ class DiagnosisRepository {
         d.disease,
         d.confidence,
         d.image_path,
+        d.report_image_url,
         d.created_at,
         (
           SELECT r.id FROM queued_reports r
@@ -1111,6 +1177,38 @@ class DiagnosisRepository {
       ORDER BY d.created_at DESC
       ${limit == null ? '' : 'LIMIT ?'}
     ''', [if (userId != null) userId, if (limit != null) limit]);
+  }
+
+  Future<bool> reconcileSentReports(List<int> diagnosisIds) async {
+    final client = _supabase;
+    final user = currentUser;
+    if (client == null || user == null || diagnosisIds.isEmpty) return false;
+    final db = await _db;
+    final local = await db.query('queued_reports',
+        columns: ['local_report_id'],
+        where: 'user_id = ? AND status != ? AND diagnosis_id IN (${List.filled(diagnosisIds.length, '?').join(',')})',
+        whereArgs: [user.id, reportStatusSynced, ...diagnosisIds]);
+    final ids = local.map((row) => row['local_report_id']).whereType<String>().toSet();
+    if (ids.isEmpty || currentUser?.id != user.id) return false;
+    final sent = await client
+        .from('diagnosis_reports')
+        .select('local_report_id,email_sent_at')
+        .eq('user_id', user.id)
+        .eq('email_status', 'sent')
+        .not('email_sent_at', 'is', null)
+        .inFilter('local_report_id', ids.toList())
+        .timeout(const Duration(seconds: 10));
+    if (sent.isEmpty || currentUser?.id != user.id) return false;
+    await db.transaction((txn) async {
+      for (final row in sent) {
+        await txn.update('queued_reports', {
+          'status': reportStatusSynced,
+          'synced_at': row['email_sent_at'],
+        }, where: 'user_id = ? AND local_report_id = ?',
+            whereArgs: [user.id, row['local_report_id']]);
+      }
+    });
+    return true;
   }
 
   Future<void> markDiagnosisReportForRetry(int diagnosisId) async {

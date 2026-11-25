@@ -23,9 +23,24 @@ Map<String, Object?> row(int id,
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('History accepts only the configured project report photo URLs', () {
+    const project = 'https://example.supabase.co';
+    const photo = '$project/storage/v1/object/public/report-images/a.webp';
+    expect(historyReportImageUrl(project, photo), photo);
+    for (final value in [
+      null,
+      '',
+      'https:invalid',
+      photo.replaceFirst('example.supabase.co', 'other.supabase.co'),
+      photo.replaceFirst('report-images', 'other-bucket'),
+    ]) {
+      expect(historyReportImageUrl(project, value), isNull);
+    }
+  });
   test('History labels single images separately from multi-image batches', () {
     expect(ScanHistoryBatch([row(123)]).title, 'Image 123');
     expect(ScanHistoryBatch([row(7)]).title, 'Image 007');
+    expect(ScanHistoryBatch([row(7)]).scannedLabel, '1 image scanned');
     expect(ScanHistoryBatch([row(124, batch: 'a'), row(125, batch: 'a')]).title,
         'Batch 124');
     expect(ScanHistoryBatch([row(124, batch: 'a')]).title, 'Batch 124');
@@ -133,7 +148,11 @@ void main() {
     final batches = groupScanHistory(
         [row(1, batch: 'a'), row(2, batch: 'a'), row(3), row(4)]);
     expect(batches.length, 3);
-    expect(batches.singleWhere((b) => b.key == 'a').rows.length, 2);
+    final batch = batches.singleWhere((b) => b.key == 'a');
+    expect(batch.title, 'Batch 001');
+    expect(batch.scannedCount, 2);
+    expect(batch.scannedLabel, '2 images scanned');
+    expect(batch.rows.map((row) => row['id']), [2, 1]);
     expect(batches.where((b) => b.rows.length == 1).length, 2);
   });
 
@@ -153,6 +172,32 @@ void main() {
           row(2, status: reportStatusSynced)
         ]).status,
         'Sent');
+  });
+
+  testWidgets('History recommends reporting only unsent high-risk findings',
+      (tester) async {
+    final state = AppState(persistSettings: false)..isOnline = false;
+    addTearDown(state.dispose);
+    Future<void> show(String disease, String? status) async {
+      await tester.pumpWidget(AppScope(
+          state: state,
+          child: MaterialApp(
+              key: UniqueKey(),
+              home: BatchHistoryDetailsScreen(
+                  batch: ScanHistoryBatch(
+                      [row(1, disease: disease, status: status)])))));
+      await tester.pumpAndSettle();
+    }
+
+    final notice = find.text('Reporting recommended');
+    await show('Citrus Canker', null);
+    expect(notice, findsOneWidget);
+    await show('HLB (Greening)', reportStatusWaitingInternet);
+    expect(notice, findsOneWidget);
+    await show('Citrus Canker', reportStatusSynced);
+    expect(notice, findsNothing);
+    await show('Melanose', null);
+    expect(notice, findsNothing);
   });
 
   testWidgets('Batch details open the real summary on a narrow phone',
@@ -214,7 +259,9 @@ void main() {
     final repo = DiagnosisRepository.instance;
     await repo.initialise();
     final liveDb = await openDatabase(path);
-    expect(await liveDb.getVersion(), 7);
+    expect(await liveDb.getVersion(), 8);
+    expect(await liveDb.rawQuery('PRAGMA table_info(diagnoses)'),
+        contains(containsPair('name', 'report_image_url')));
     // Simulate new Dart code attached to an already-open pre-batch database.
     for (final column in [
       'batch_id',
@@ -242,7 +289,7 @@ void main() {
     expect(groupScanHistory(rows).length, 2);
     expect(rows.where((r) => r['batch_id'] == 'new-batch').length, 2);
     final db = await openDatabase(path);
-    expect(await db.getVersion(), 7);
+    expect(await db.getVersion(), 8);
     final batchIds = rows
         .where((r) => r['batch_id'] == 'new-batch')
         .map((r) => r['id'] as int)

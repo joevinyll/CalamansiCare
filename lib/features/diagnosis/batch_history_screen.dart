@@ -9,6 +9,8 @@ class ScanHistoryBatch {
   String get key => '${rows.first['batch_id'] ?? 'scan-${rows.first['id']}'}';
   String get title =>
       '${scannedCount == 1 ? 'Image' : 'Batch'} ${rows.map((r) => r['id'] as int).reduce((a, b) => a < b ? a : b).toString().padLeft(3, '0')}';
+  String get scannedLabel =>
+      scannedCount == 1 ? '1 image scanned' : '$scannedCount images scanned';
   DateTime get date => rows
       .map((r) => DateTime.parse(r['created_at'] as String))
       .reduce((a, b) => a.isBefore(b) ? a : b)
@@ -66,6 +68,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   String _query = '';
   String _risk = 'All risk levels';
   bool _deleting = false;
+  (String?, int, int)? _historySource;
 
   Future<void> _deleteBatch(ScanHistoryBatch batch) async {
     if (_deleting) return;
@@ -103,13 +106,29 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   @override
-  void initState() {
-    super.initState();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final state = AppScope.of(context);
+    final source = (
+      DiagnosisRepository.instance.currentUser?.id,
+      state.restoredReportsRevision,
+      state.sentReportsCount,
+    );
+    if (_historySource == source) return;
+    _historySource = source;
     _future = DiagnosisRepository.instance.getRecentDiagnoses(limit: null);
   }
 
   Future<void> _refresh() async {
-    await AppScope.of(context).checkConnectivityAndSync();
+    final state = AppScope.of(context);
+    await state.checkConnectivityAndSync();
+    if (state.isOnline) {
+      try {
+        await DiagnosisRepository.instance.restoreSignedInReports();
+      } catch (_) {
+        // Keep local history available if the cloud refresh fails.
+      }
+    }
     if (!mounted) return;
     final future = DiagnosisRepository.instance.getRecentDiagnoses(limit: null);
     setState(() => _future = future);
@@ -231,12 +250,30 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                   _day(batches[i].date) !=
                                       _day(batches[i - 1].date))
                                 Padding(
-                                    padding: const EdgeInsets.only(
-                                        bottom: 10, top: 8),
-                                    child: Text(_day(batches[i].date),
-                                        style: const TextStyle(
-                                            fontSize: 17,
-                                            fontWeight: FontWeight.w600))),
+                                    padding: const EdgeInsets.fromLTRB(
+                                        2, 10, 2, 10),
+                                    child: Row(children: [
+                                      const ExcludeSemantics(
+                                        child: Icon(Icons.calendar_today_outlined,
+                                            size: 16, color: CcColors.green),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Flexible(
+                                        flex: 4,
+                                        child: Semantics(
+                                          header: true,
+                                          child: Text(_day(batches[i].date),
+                                              style: const TextStyle(
+                                                  color: CcColors.ink,
+                                                  fontSize: 15,
+                                                  fontWeight: FontWeight.w700)),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      const Expanded(
+                                        child: Divider(color: CcColors.line),
+                                      ),
+                                    ])),
                               Padding(
                                   padding: const EdgeInsets.only(bottom: 12),
                                   child: _HistoryBatchTile(
@@ -316,7 +353,7 @@ class _HistoryBatchTile extends StatelessWidget {
                       const Icon(Icons.chevron_right, color: CcColors.muted)
                     ]),
                     const SizedBox(height: 8),
-                    Text('${batch.scannedCount} images scanned',
+                    Text(batch.scannedLabel,
                         style: const TextStyle(fontSize: 13)),
                     const SizedBox(height: 6),
                     Wrap(
@@ -354,15 +391,10 @@ class _BatchStrip extends StatelessWidget {
                         child: ClipRRect(
                             borderRadius: BorderRadius.circular(6),
                             child: Stack(fit: StackFit.expand, children: [
-                              Image.file(
-                                  File(batch.rows[i]['image_path'] as String? ??
-                                      ''),
-                                  fit: BoxFit.cover,
-                                  cacheWidth: 180,
-                                  errorBuilder: (_, __, ___) =>
-                                      const ColoredBox(
-                                          color: CcColors.soft,
-                                          child: Icon(Icons.image_outlined))),
+                              _HistoryPhoto(
+                                path: batch.rows[i]['image_path'] as String?,
+                                url: batch.rows[i]['report_image_url'] as String?,
+                              ),
                               if (i == 4 && batch.rows.length > 5)
                                 ColoredBox(
                                     color: Colors.black54,
@@ -373,6 +405,45 @@ class _BatchStrip extends StatelessWidget {
                                                 fontWeight: FontWeight.w700)))),
                             ])))))
         ]));
+  }
+}
+
+class _HistoryPhoto extends StatelessWidget {
+  const _HistoryPhoto({
+    required this.path,
+    required this.url,
+    this.size = 180,
+    this.fit = BoxFit.cover,
+    this.placeholder = const ColoredBox(
+        color: CcColors.soft, child: Icon(Icons.image_outlined)),
+  });
+  final String? path;
+  final String? url;
+  final int size;
+  final BoxFit fit;
+  final Widget placeholder;
+
+  @override
+  Widget build(BuildContext context) {
+    final url = this.url;
+    final canLoadCloud = url != null &&
+        AppScope.of(context).isOnline &&
+        DiagnosisRepository.instance.currentUser != null;
+    Widget cloud() => canLoadCloud
+        ? Image(
+            image: ResizeImage(NetworkImage(url), width: size, height: size,
+                policy: ResizeImagePolicy.fit),
+            fit: fit,
+            frameBuilder: (_, child, frame, synchronous) =>
+                synchronous || frame != null ? child : placeholder,
+            errorBuilder: (_, __, ___) => placeholder,
+          )
+        : placeholder;
+    final path = this.path;
+    return path == null || path.isEmpty
+        ? cloud()
+        : Image.file(File(path), fit: fit, cacheWidth: size,
+            errorBuilder: (_, __, ___) => cloud());
   }
 }
 
@@ -472,8 +543,14 @@ class _BatchHistoryDetailsScreenState extends State<BatchHistoryDetailsScreen> {
         Text(_formatHistoryDateTime(_batch.date.toIso8601String()),
             style: const TextStyle(color: CcColors.muted)),
         const SizedBox(height: 12),
-        Text('${_batch.scannedCount} images scanned'),
+        Text(_batch.scannedLabel),
         const SizedBox(height: 8),
+        if (_batch.rows.any((row) =>
+            row['report_status'] != reportStatusSynced &&
+            _batchRisk(row['disease'] as String) == 'High risk')) ...[
+          const _ReportingRecommendedNotice(),
+          const SizedBox(height: 12),
+        ],
         _historyCollage(_batch),
         if (_batch.scannedCount > _batch.rows.length)
           Padding(
@@ -494,7 +571,7 @@ class _BatchHistoryDetailsScreenState extends State<BatchHistoryDetailsScreen> {
                   for (var i = 0; i < _batch.rows.length; i++)
                     if (_batch.rows[i]['disease'] == e.key) i
                 ],
-                results: _batch.results),
+                batch: _batch),
             const SizedBox(height: 8)
           ],
           if (_batch.conditions.keys
@@ -541,6 +618,7 @@ Widget _historyCollage(ScanHistoryBatch batch) => _BatchPanel(
             childAspectRatio: .8),
         itemBuilder: (_, index) => _BatchPhoto(
             result: batch.results[index],
+            reportImageUrl: batch.rows[index]['report_image_url'] as String?,
             number:
                 ((batch.rows[index]['batch_image_index'] as int?) ?? index) +
                     1)));
@@ -560,12 +638,13 @@ void _openBatchCare(BuildContext context, ScanHistoryBatch batch) {
 
 class _HistoryConditionRow extends StatelessWidget {
   const _HistoryConditionRow(
-      {required this.label, required this.indices, required this.results});
+      {required this.label, required this.indices, required this.batch});
   final String label;
   final List<int> indices;
-  final List<BatchScanResult> results;
+  final ScanHistoryBatch batch;
   @override
   Widget build(BuildContext context) {
+    final results = batch.results;
     final scores =
         indices.map((i) => results[i].prediction!.confidence).toList()..sort();
     final min = (scores.first * 100).toStringAsFixed(0);
@@ -576,12 +655,21 @@ class _HistoryConditionRow extends StatelessWidget {
       leading: Icon(Icons.circle, size: 15, color: _batchConditionColor(label)),
       title: Text(context.t(label),
           style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-      subtitle: Wrap(spacing: 12, runSpacing: 4, children: [
-        Text(
-            '${indices.length} ${indices.length == 1 ? 'image' : 'images'} - ${(indices.length / results.length * 100).toStringAsFixed(0)}%',
-            style: const TextStyle(fontSize: 12)),
-        Text('Confidence ${min == max ? min : '$min-$max'}%',
-            style: const TextStyle(fontSize: 12)),
+      subtitle: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(
+          child: Text(
+              '${indices.length} ${indices.length == 1 ? 'image' : 'images'} - ${(indices.length / results.length * 100).toStringAsFixed(0)}%',
+              style: const TextStyle(fontSize: 12)),
+        ),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: Text('Confidence ${min == max ? min : '$min-$max'}%',
+                textAlign: TextAlign.end,
+                style: const TextStyle(fontSize: 12)),
+          ),
+        ),
       ]),
       children: [
         SizedBox(
@@ -594,6 +682,8 @@ class _HistoryConditionRow extends StatelessWidget {
                   width: 100,
                   child: _BatchPhoto(
                       result: results[indices[i]],
+                      reportImageUrl:
+                          batch.rows[indices[i]]['report_image_url'] as String?,
                       number: indices[i] + 1,
                       showConfidence: true)),
             ))
@@ -644,6 +734,40 @@ class _BatchReportSummaryScreenState extends State<BatchReportSummaryScreen> {
   final _scroll = ScrollController();
   bool _showOfflineActions = false;
   bool _sending = false;
+  bool _wasOnline = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final state = AppScope.of(context);
+    if (state.isOnline && !_wasOnline && _batch.waiting) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_sending) unawaited(_reconcileDelivery(state));
+      });
+    }
+    _wasOnline = state.isOnline;
+  }
+
+  Future<void> _reconcileDelivery(AppState state) async {
+    if (!state.isOnline || !_batch.waiting) return;
+    final repo = DiagnosisRepository.instance;
+    try {
+      final changed = await repo.reconcileSentReports(
+          _batch.rows.map((row) => row['id'] as int).toList());
+      if (!changed || !mounted) return;
+      final batches = groupScanHistory(await repo.getRecentDiagnoses(limit: null));
+      if (!mounted) return;
+      for (final batch in batches) {
+        if (batch.key == _batch.key) {
+          setState(() => _batch = batch);
+          break;
+        }
+      }
+      await state.refreshStats();
+    } catch (_) {
+      // Leave the local status unchanged if the server cannot confirm it.
+    }
+  }
 
   @override
   void dispose() {
@@ -664,8 +788,7 @@ class _BatchReportSummaryScreenState extends State<BatchReportSummaryScreen> {
   }
 
   Future<void> _send() async {
-    if (_sending) return;
-    if (_sending) return;
+    if (_sending || _batch.sent) return;
     final state = AppScope.of(context);
     if (!state.consentEnabled) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -676,6 +799,8 @@ class _BatchReportSummaryScreenState extends State<BatchReportSummaryScreen> {
     if (!await ensureReportProfileComplete(context) || !mounted) return;
     setState(() => _sending = true);
     try {
+      await _reconcileDelivery(state);
+      if (!mounted || _batch.sent) return;
       await DiagnosisRepository.instance.queueBatchReports(
           diagnosisIds: _batch.rows.map((r) => r['id'] as int).toList(),
           settings: state.currentSettings());
@@ -845,7 +970,7 @@ class _BatchReportSummaryScreenState extends State<BatchReportSummaryScreen> {
                               for (var i = 0; i < _batch.rows.length; i++)
                                 if (_batch.rows[i]['disease'] == e.key) i
                             ],
-                            results: _batch.results)
+                            batch: _batch)
                     ]),
               ])),
           const SizedBox(height: 12),

@@ -67,6 +67,8 @@ class BatchResultsScreen extends StatelessWidget {
         .where((key) =>
             !_batchIssueGroups.contains(key) && !_isHealthyCondition(key))
         .toList();
+    final shouldRecommendReporting =
+        conditions.any((condition) => _batchRisk(condition) == 'High risk');
     final textTheme = Theme.of(context)
         .textTheme
         .apply(
@@ -143,6 +145,10 @@ class BatchResultsScreen extends StatelessWidget {
                     constraints: const BoxConstraints(maxWidth: 600),
                     child:
                         ListView(padding: const EdgeInsets.all(16), children: [
+                      if (shouldRecommendReporting) ...[
+                        const _ReportingRecommendedNotice(),
+                        const SizedBox(height: 16),
+                      ],
                       _BatchPanel(
                           child: GridView.builder(
                         shrinkWrap: true,
@@ -210,9 +216,14 @@ class BatchResultsScreen extends StatelessWidget {
                               minimumSize: const Size.fromHeight(52)),
                         ),
                       ],
-                      TextButton(
-                          onPressed: () => Navigator.maybePop(context),
-                          child: const Text('Back to camera')),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: () => Navigator.maybePop(context),
+                        icon: const Icon(Icons.camera_alt_outlined),
+                        label: const Text('Back to camera'),
+                        style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(52)),
+                      ),
                     ]),
                   ))),
         ));
@@ -250,6 +261,35 @@ String _batchRisk(String label) {
   return 'Medium risk';
 }
 
+class _ReportingRecommendedNotice extends StatelessWidget {
+  const _ReportingRecommendedNotice();
+
+  @override
+  Widget build(BuildContext context) => const _BatchPanel(
+        color: CcColors.orangeSoft,
+        borderColor: Color(0xFFE8C78B),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Color(0xFF94510B)),
+            SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Reporting recommended',
+                      style: TextStyle(fontWeight: FontWeight.w700)),
+                  SizedBox(height: 4),
+                  Text(
+                      'This scan flagged a suspected high-risk disease. Open the report summary to share the results with your local agriculture office for verification.'),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+}
+
 class _BatchPanel extends StatelessWidget {
   const _BatchPanel(
       {required this.child,
@@ -273,9 +313,11 @@ class _BatchPhoto extends StatelessWidget {
   const _BatchPhoto(
       {required this.result,
       required this.number,
+      this.reportImageUrl,
       this.showConfidence = false});
   final BatchScanResult result;
   final int number;
+  final String? reportImageUrl;
   final bool showConfidence;
   @override
   Widget build(BuildContext context) => Column(children: [
@@ -297,14 +339,14 @@ class _BatchPhoto extends StatelessWidget {
                                   icon: const Icon(Icons.close))),
                           Flexible(
                               child: InteractiveViewer(
-                                  child: Image.file(File(result.file.path),
-                                      cacheWidth: 1600,
+                                  child: _HistoryPhoto(
+                                      path: result.file.path,
+                                      url: reportImageUrl,
+                                      size: 1600,
                                       fit: BoxFit.contain,
-                                      errorBuilder: (_, __, ___) =>
-                                          const Padding(
-                                              padding: EdgeInsets.all(24),
-                                              child:
-                                                  Text('Photo unavailable'))))),
+                                      placeholder: const Padding(
+                                          padding: EdgeInsets.all(24),
+                                          child: Text('Photo unavailable'))))),
                           Padding(
                               padding: const EdgeInsets.all(12),
                               child: Text(result.error ??
@@ -324,6 +366,7 @@ class _BatchPhoto extends StatelessWidget {
                                         imageFile: result.file,
                                         diagnosisId: result.id!,
                                         imageNumber: number,
+                                        reportImageUrl: reportImageUrl,
                                       ));
                                 },
                               ),
@@ -333,22 +376,8 @@ class _BatchPhoto extends StatelessWidget {
               child: ClipRRect(
                   borderRadius: BorderRadius.circular(6),
                   child: Stack(fit: StackFit.expand, children: [
-                    Image.file(File(result.file.path),
-                        fit: BoxFit.cover,
-                        cacheWidth: 300,
-                        gaplessPlayback: true,
-                        frameBuilder: (context, child, frame, synchronous) =>
-                            synchronous || frame != null
-                                ? child
-                                : const ColoredBox(
-                                    color: Color(0xFFEEF2ED),
-                                    child: Center(
-                                        child: Icon(Icons.image_outlined,
-                                            color: CcColors.muted)),
-                                  ),
-                        errorBuilder: (_, __, ___) => const ColoredBox(
-                            color: CcColors.bg,
-                            child: Icon(Icons.broken_image_outlined))),
+                    _HistoryPhoto(
+                        path: result.file.path, url: reportImageUrl, size: 300),
                     Positioned(
                         left: 3,
                         bottom: 3,
@@ -392,17 +421,6 @@ class _BatchConditionState extends State<_BatchCondition> {
   Widget build(BuildContext context) {
     final accepted = !_batchIssueGroups.contains(label);
     final color = _batchConditionColor(label);
-    final percent = indices.length / results.length;
-    final confidences = indices
-        .map((i) => results[i].prediction?.confidence)
-        .whereType<double>()
-        .toList()
-      ..sort();
-    final confidence = confidences.isEmpty
-        ? ''
-        : confidences.first == confidences.last
-            ? '${(confidences.first * 100).toStringAsFixed(0)}%'
-            : '${(confidences.first * 100).toStringAsFixed(0)}-${(confidences.last * 100).toStringAsFixed(0)}%';
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Padding(
@@ -415,29 +433,18 @@ class _BatchConditionState extends State<_BatchCondition> {
         const SizedBox(width: 6),
         Flexible(
             child: Text(
-                '${(percent * 100).toStringAsFixed(0)}% (${indices.length} ${indices.length == 1 ? 'image' : 'images'})',
+                '${indices.length} ${indices.length == 1 ? 'image' : 'images'}',
                 textAlign: TextAlign.right,
                 style: const TextStyle(
                     fontWeight: FontWeight.w600, fontSize: 13, height: 1.5))),
       ]),
-      const SizedBox(height: 10),
-      Padding(
-          padding: const EdgeInsets.only(left: 30),
-          child: LinearProgressIndicator(
-              value: percent,
-              minHeight: 6,
-              color: color,
-              backgroundColor: CcColors.line,
-              borderRadius: BorderRadius.circular(4))),
       const SizedBox(height: 6),
       Padding(
           padding: const EdgeInsets.only(left: 30),
           child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Expanded(
+            if (!accepted) Expanded(
                 child: Text(
-                    accepted
-                        ? 'Confidence: $confidence'
-                        : switch (label) {
+                    switch (label) {
                             'Could not save' =>
                               'Predictions were produced but could not be saved. Restart the app and try again.',
                             'Could not scan' =>
@@ -448,7 +455,6 @@ class _BatchConditionState extends State<_BatchCondition> {
                     style:
                         const TextStyle(color: CcColors.muted, fontSize: 13))),
             if (accepted && !_expanded) ...[
-              const SizedBox(width: 8),
               Flexible(
                   child: Text(
                       context
@@ -488,8 +494,7 @@ class _BatchConditionState extends State<_BatchCondition> {
                       width: 110,
                       child: _BatchPhoto(
                           result: results[indices[i]],
-                          number: indices[i] + 1,
-                          showConfidence: true)))),
+                          number: indices[i] + 1)))),
         ],
       ),
     ]);
@@ -798,6 +803,7 @@ class _BatchCareState extends State<_BatchCare> {
           ]),
           const SizedBox(height: 16),
           _BatchPanel(
+            color: CcColors.soft,
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               const Text('Prevention',

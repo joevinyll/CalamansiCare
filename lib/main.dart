@@ -1413,6 +1413,7 @@ String _phonePreferredLanguage(String fallback) {
 }
 
 class AppState extends ChangeNotifier {
+  int restoredReportsRevision = 0;
   AppState({this.persistSettings = true}) {
     termsAccepted = !persistSettings;
   }
@@ -1687,6 +1688,7 @@ class AppState extends ChangeNotifier {
       await _persistSettings();
     }
     await DiagnosisRepository.instance.restoreSignedInReports();
+    restoredReportsRevision++;
     await refreshStats();
   }
 

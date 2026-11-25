@@ -81,7 +81,21 @@ export async function handleRequest(req: Request): Promise<Response> {
     }
 
     const claim = await reportResponse.json();
-    if (claim.status === "already_claimed") return json({ ok: true, status: "already_claimed" });
+    if (claim.status === "already_claimed") {
+      const url = reportEmailRowsUrl(supabaseUrl, localReportIds);
+      url.searchParams.set("user_id", `eq.${authUser.id}`);
+      url.searchParams.set("select", "email_status,email_sent_at");
+      const statusResponse = await fetch(url, {
+        headers: { apikey: serviceRoleKey, Authorization: authorization },
+      });
+      if (!statusResponse.ok) return json({ error: "Unable to verify report delivery." }, 503);
+      const rows = await statusResponse.json();
+      if (Array.isArray(rows) && rows.length === localReportIds.length &&
+          rows.every((row) => row.email_status === "sent" && row.email_sent_at)) {
+        return json({ ok: true, status: "sent" });
+      }
+      return json({ error: "Previous send was not confirmed. Operator review required." }, 409);
+    }
     if (claim.status === "rate_limited") return json({ error: "Delivery limit reached." }, 429);
     if (claim.status !== "claimed" || !Array.isArray(claim.reports) || !claim.reports.length) return json({ error: "Report unavailable or partially delivered. Operator review required." }, 409);
     const reports = claim.reports as ReportRow[];
@@ -139,7 +153,7 @@ export async function handleRequest(req: Request): Promise<Response> {
     }
 
     await markEmailStatus(supabaseUrl, serviceRoleKey, localReportIds, "sent", null);
-    return json({ ok: true, provider: emailResult.provider });
+    return json({ ok: true, status: "sent", provider: emailResult.provider });
   } catch (_) {
     return json({ error: "Unable to deliver report." }, 500);
   }
@@ -194,9 +208,14 @@ async function sendWithBrevo({
   });
   const text = await response.text();
   if (!response.ok) {
+    console.warn("Brevo report email rejected", { status: response.status });
     return { ok: false, provider: "brevo", error: text };
   }
-  return { ok: true, provider: "brevo", result: safeJson(text) };
+  const result = safeJson(text) as { messageId?: unknown } | null;
+  if (typeof result?.messageId !== "string" || !result.messageId.trim()) {
+    throw new Error("Brevo did not return a message ID.");
+  }
+  return { ok: true, provider: "brevo", result };
 }
 
 async function sendWithSmtp2go({
@@ -419,6 +438,12 @@ export function cityOnlyReportLocation(location: string | null): string {
   return municipality ?? "General area";
 }
 
+function reportEmailRowsUrl(supabaseUrl: string, localReportIds: string[]) {
+  const url = new URL(`${supabaseUrl}/rest/v1/diagnosis_reports`);
+  url.searchParams.set("local_report_id", `in.(${localReportIds.join(",")})`);
+  return url;
+}
+
 async function markEmailStatus(
   supabaseUrl: string,
   serviceRoleKey: string,
@@ -426,17 +451,15 @@ async function markEmailStatus(
   status: "sent" | "failed",
   error: string | null,
 ) {
-  await fetch(
-    `${supabaseUrl}/rest/v1/diagnosis_reports?local_report_id=eq.${encodeURIComponent(
-      localReportIds[0],
-    )}`,
+  const response = await fetch(
+    reportEmailRowsUrl(supabaseUrl, localReportIds),
     {
       method: "PATCH",
       headers: {
         apikey: serviceRoleKey,
         Authorization: `Bearer ${serviceRoleKey}`,
         "Content-Type": "application/json",
-        Prefer: "return=minimal",
+        Prefer: "return=representation",
       },
       body: JSON.stringify({
         email_status: status,
@@ -445,8 +468,8 @@ async function markEmailStatus(
       }),
     },
   );
-  for (const id of localReportIds.slice(1)) {
-    await markEmailStatus(supabaseUrl, serviceRoleKey, [id], status, error);
+  if (!response.ok || (await response.json()).length !== localReportIds.length) {
+    throw new Error("Unable to record report email outcome.");
   }
 }
 

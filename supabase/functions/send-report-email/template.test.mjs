@@ -143,16 +143,20 @@ test('one authenticated batch request calls the email provider only once', async
       assert.ok(payload.htmlContent.includes('verified-farmer@example.com'));
       assert.ok(!payload.htmlContent.includes('spoofed@example.com'));
       assert.ok(!('attachment' in payload));
+      return Response.json({messageId:'sent'});
     }
-    return Response.json({messageId:'sent'});
+    assert.equal(options.method, 'PATCH');
+    assert.equal(JSON.parse(options.body).email_status, 'sent');
+    return Response.json([{}, {}]);
   };
   try {
     const response = await handleRequest(new Request('https://local.test', {
       method:'POST', headers:{Authorization:'Bearer test'},
       body:JSON.stringify({local_report_ids:['report-1','report-2'], farmer_email:'spoofed@example.com'})}));
     assert.equal(response.status, 200);
+    assert.equal((await response.json()).status, 'sent');
     assert.equal(calls.filter(url => url.includes('api.brevo.com')).length, 1);
-    assert.equal(calls.filter(url => url.includes('/rest/v1/diagnosis_reports?')).length, 2);
+    assert.equal(calls.filter(url => url.includes('/rest/v1/diagnosis_reports?')).length, 1);
   } finally { globalThis.fetch = savedFetch; globalThis.Deno = savedDeno; }
 });
 
@@ -162,18 +166,32 @@ test('claimed or partially delivered batches never call the provider again', asy
   globalThis.Deno = {env:{get:name => ({BREVO_API_KEY:'test',
     SUPABASE_URL:'https://project.supabase.co', SUPABASE_SERVICE_ROLE_KEY:'test'})[name]}};
   try {
-    for (const status of ['already_claimed', 'partial_claim', 'rate_limited']) {
+    for (const [status, outcomes, expected] of [
+      ['already_claimed', ['failed', 'failed'], 409],
+      ['already_claimed', ['sending', 'sending'], 409],
+      ['already_claimed', ['sent', 'failed'], 409],
+      ['already_claimed', ['sent'], 409],
+      ['already_claimed', ['sent', 'sent'], 200],
+      ['partial_claim', [], 409],
+      ['rate_limited', [], 429],
+    ]) {
       let providerCalls = 0;
       globalThis.fetch = async url => {
         if (String(url).endsWith('/auth/v1/user')) return Response.json({id:'owner'});
         if (String(url).includes('/rpc/')) return Response.json({status});
+        if (String(url).includes('/rest/v1/diagnosis_reports?')) {
+          return Response.json(outcomes.map(email_status => ({
+            email_status, email_sent_at: email_status === 'sent' ? '2026-11-25' : null,
+          })));
+        }
         providerCalls++;
         return Response.json({});
       };
       const response = await handleRequest(new Request('https://local.test', {
         method:'POST', headers:{Authorization:'Bearer test'},
         body:JSON.stringify({local_report_ids:['report-1','report-2']})}));
-      assert.equal(response.status, status === 'already_claimed' ? 200 : status === 'rate_limited' ? 429 : 409);
+      assert.equal(response.status, expected);
+      if (expected === 200) assert.equal((await response.json()).status, 'sent');
       assert.equal(providerCalls, 0);
     }
   } finally { globalThis.fetch = savedFetch; globalThis.Deno = savedDeno; }

@@ -5,13 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker/image_picker.dart';
 
-List<BatchScanResult> sampleBatch({bool uncertain = false}) => List.generate(
+List<BatchScanResult> sampleBatch(
+        {bool uncertain = false, String firstCondition = 'Healthy Fruit'}) =>
+    List.generate(
     10,
     (i) => (
           file: XFile(File('assets/app_icon.png').absolute.path),
           prediction: DiseasePrediction(
               label: i == 0
-                  ? 'Healthy Fruit'
+                  ? firstCondition
                   : i < 4
                       ? 'Citrus Scab'
                       : 'Melanose',
@@ -20,18 +22,29 @@ List<BatchScanResult> sampleBatch({bool uncertain = false}) => List.generate(
           error: uncertain && i == 9 ? 'Retake this image.' : null,
         ));
 
-Future<void> showBatch(WidgetTester tester, {bool uncertain = false}) async {
+Future<void> showBatch(WidgetTester tester,
+    {bool uncertain = false, String firstCondition = 'Healthy Fruit'}) async {
   final state = AppState(persistSettings: false);
   addTearDown(state.dispose);
   await tester.pumpWidget(MaterialApp(
       home: AppScope(
           state: state,
-          child:
-              BatchResultsScreen(results: sampleBatch(uncertain: uncertain)))));
+          child: BatchResultsScreen(
+              results: sampleBatch(
+                  uncertain: uncertain, firstCondition: firstCondition)))));
   await tester.pumpAndSettle();
 }
 
 void main() {
+  testWidgets('Reporting notice only appears for high-risk results',
+      (tester) async {
+    await showBatch(tester);
+    expect(find.text('Reporting recommended'), findsNothing);
+    await showBatch(tester, firstCondition: 'HLB (Greening)');
+    expect(find.text('Reporting recommended'), findsOneWidget);
+    expect(find.textContaining('suspected high-risk disease'), findsOneWidget);
+  });
+
   testWidgets('Tab fill tracks partial card swipes', (tester) async {
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
@@ -111,7 +124,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(
           tester
-              .getBottomRight(find.widgetWithText(TextButton, 'Back to camera'))
+              .getBottomRight(
+                  find.widgetWithText(OutlinedButton, 'Back to camera'))
               .dy,
           lessThanOrEqualTo(844 - bottom));
       expect(
@@ -186,7 +200,7 @@ void main() {
     expect(find.textContaining('Retake these images'), findsNothing);
     expect(tester.takeException(), isNull);
   });
-  testWidgets('Batch percentages use the complete batch and photos expand',
+  testWidgets('Batch shows image counts without percentages and photos expand',
       (tester) async {
     tester.view.physicalSize = const Size(390, 1300);
     tester.view.devicePixelRatio = 1;
@@ -194,19 +208,19 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await showBatch(tester);
     expect(find.text('10 images scanned'), findsOneWidget);
-    expect(find.text('10% (1 image)'), findsOneWidget);
-    expect(find.text('30% (3 images)'), findsOneWidget);
-    expect(find.text('60% (6 images)'), findsOneWidget);
-    Finder confidenceRow() => find
-        .ancestor(of: find.text('Confidence: 90%'), matching: find.byType(Row))
-        .first;
-    expect(find.descendant(of: confidenceRow(), matching: find.text('No Risk')),
-        findsOneWidget);
+    expect(find.text('1 image'), findsOneWidget);
+    expect(find.text('3 images'), findsOneWidget);
+    expect(find.text('6 images'), findsOneWidget);
+    expect(find.textContaining('%'), findsNothing);
+    expect(find.text('No Risk'), findsOneWidget);
     await tester.tap(find.text('View Images').first);
     await tester.pumpAndSettle();
-    expect(find.text('Image 1 - 90%'), findsOneWidget);
-    expect(find.descendant(of: confidenceRow(), matching: find.text('No Risk')),
-        findsNothing);
+    expect(
+        find.byWidgetPredicate((widget) =>
+            widget is Semantics && widget.properties.label == 'View image 1'),
+        findsNWidgets(2));
+    expect(find.textContaining('%'), findsNothing);
+    expect(find.text('No Risk'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -215,7 +229,7 @@ void main() {
     await showBatch(tester, uncertain: true);
     await tester.scrollUntilVisible(find.text('Needs another scan'), 250,
         scrollable: find.byType(Scrollable).first);
-    expect(find.text('50% (5 images)'), findsOneWidget);
+    expect(find.text('5 images'), findsWidgets);
     expect(
         find.text(
             'Retake these images in good lighting and keep the calamansi fruit or leaf clearly in focus.'),

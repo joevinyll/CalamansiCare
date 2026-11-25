@@ -647,12 +647,14 @@ class DiagnosisScreen extends StatelessWidget {
       required this.prediction,
       required this.imageFile,
       required this.diagnosisId,
+      this.reportImageUrl,
       this.imageNumber});
 
   final DiseasePrediction prediction;
   final XFile imageFile;
   final int diagnosisId;
   final int? imageNumber;
+  final String? reportImageUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -688,12 +690,18 @@ class DiagnosisScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(8),
                     child: ColoredBox(
                       color: CcColors.bgAlt,
-                      child: LeafImage(
-                        imageFile: imageFile,
-                        width: double.infinity,
-                        height: double.infinity,
-                        fit: BoxFit.contain,
-                      ),
+                      child: reportImageUrl != null
+                          ? _HistoryPhoto(
+                              path: imageFile.path,
+                              url: reportImageUrl,
+                              size: 1600,
+                              fit: BoxFit.contain)
+                          : LeafImage(
+                              imageFile: imageFile,
+                              width: double.infinity,
+                              height: double.infinity,
+                              fit: BoxFit.contain,
+                            ),
                     ),
                   ),
                 ),
